@@ -59,9 +59,7 @@ The thresholds of one number must go up from level to level. If they do not, hea
 ## Development
 
 ```
-task lint   # validate the mod and type-check it
+task lint   # validate the mod, types included
 task test   # run the tests
 task ci     # both
 ```
-
-`task lint` needs the engine's type declarations. It copies them from the plugin-authoring skill's folder. If they are not there, load that skill in Claude Code once, or set `CLAUDE_CODE_TYPES` to the path of `claude-code.d.ts`. The default search path works only on Linux, so a CI job or a macOS machine must set `CLAUDE_CODE_TYPES`.

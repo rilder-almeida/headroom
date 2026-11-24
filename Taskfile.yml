@@ -4,28 +4,10 @@ vars:
   V: '{{.V | default "1"}}'
 
 tasks:
-  generate:
-    desc: Lay the engine's type declarations where tsc reads them
-    vars:
-      SRC:
-        sh: ls -t ${CLAUDE_CODE_TYPES:-/tmp/claude-$(id -u)/bundled-skills/*/*/plugin-authoring/types/claude-code.d.ts} 2>/dev/null | head -1
-    preconditions:
-      - sh: test -n "{{.SRC}}"
-        msg: No claude-code.d.ts found. Load the plugin-authoring skill in Claude Code once, or set CLAUDE_CODE_TYPES to the file.
-    cmds:
-      - mkdir -p .claude-plugin/types/claude-code
-      - cp {{if eq .V "2"}}-v{{end}} {{.SRC}} .claude-plugin/types/claude-code/index.d.ts
-    sources:
-      - '{{.SRC}}'
-    generates:
-      - .claude-plugin/types/claude-code/index.d.ts
-
   lint:
-    desc: Validate the mod manifest and module, then type-check it
-    deps: [generate]
+    desc: Validate the mod manifest and module, types included
     cmds:
       - claude plugin validate --strict . {{.CLI_ARGS}}
-      - tsc -p . {{if eq .V "2"}}--extendedDiagnostics{{end}}
 
   test:
     desc: Run the mod's tests
