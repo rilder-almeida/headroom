@@ -1,0 +1,126 @@
+{
+  "name": "headroom",
+  "version": "0.1.0",
+  "description": "Alerts, asks or blocks as the context window fills and the rate-limit pace runs hot.",
+  "author": {
+    "name": "Rilder Almeida"
+  },
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "context_opportunity_at": {
+      "type": "number",
+      "title": "Context opportunity at (%)",
+      "default": 45,
+      "description": "Context window fill, in percent, where the opportunity level starts."
+    },
+    "context_opportunity_action": {
+      "type": "string",
+      "title": "Context opportunity action",
+      "default": "alert",
+      "options": [
+        "none",
+        "alert",
+        "ask",
+        "block"
+      ],
+      "description": "What headroom does at the context opportunity level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (deny tool calls)."
+    },
+    "context_critical_at": {
+      "type": "number",
+      "title": "Context critical at (%)",
+      "default": 65,
+      "description": "Context window fill, in percent, where the critical level starts."
+    },
+    "context_critical_action": {
+      "type": "string",
+      "title": "Context critical action",
+      "default": "alert",
+      "options": [
+        "none",
+        "alert",
+        "ask",
+        "block"
+      ],
+      "description": "What headroom does at the context critical level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (deny tool calls)."
+    },
+    "context_limit_at": {
+      "type": "number",
+      "title": "Context limit at (%)",
+      "default": 75,
+      "description": "Context window fill, in percent, where the limit level starts."
+    },
+    "context_limit_action": {
+      "type": "string",
+      "title": "Context limit action",
+      "default": "ask",
+      "options": [
+        "none",
+        "alert",
+        "ask",
+        "block"
+      ],
+      "description": "What headroom does at the context limit level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (deny tool calls)."
+    },
+    "pace_tight_at": {
+      "type": "number",
+      "title": "Pace tight at (%)",
+      "default": 20,
+      "description": "Spend speed above an even pace to the reset, in percent, where the tight level starts."
+    },
+    "pace_tight_action": {
+      "type": "string",
+      "title": "Pace tight action",
+      "default": "alert",
+      "options": [
+        "none",
+        "alert",
+        "ask",
+        "block"
+      ],
+      "description": "What headroom does at the pace tight level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (deny tool calls)."
+    },
+    "pace_short_at": {
+      "type": "number",
+      "title": "Pace short at (%)",
+      "default": 50,
+      "description": "Spend speed above an even pace to the reset, in percent, where the short level starts."
+    },
+    "pace_short_action": {
+      "type": "string",
+      "title": "Pace short action",
+      "default": "ask",
+      "options": [
+        "none",
+        "alert",
+        "ask",
+        "block"
+      ],
+      "description": "What headroom does at the pace short level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (deny tool calls)."
+    },
+    "pace_overrun_at": {
+      "type": "number",
+      "title": "Pace overrun at (%)",
+      "default": 100,
+      "description": "Spend speed above an even pace to the reset, in percent, where the overrun level starts."
+    },
+    "pace_overrun_action": {
+      "type": "string",
+      "title": "Pace overrun action",
+      "default": "ask",
+      "options": [
+        "none",
+        "alert",
+        "ask",
+        "block"
+      ],
+      "description": "What headroom does at the pace overrun level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (deny tool calls)."
+    },
+    "wake_at": {
+      "type": "number",
+      "title": "Wake at (%)",
+      "default": 75,
+      "description": "When the 5-hour window passes this percent, headroom wakes the session at its reset. 0 turns the timer off."
+    }
+  }
+}

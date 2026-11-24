@@ -1,0 +1,6 @@
+{
+  "name": "headroom",
+  "description": "headroom: a Claude Code mod that alerts, asks or blocks as the context window fills and the rate-limit pace runs hot.",
+  "owner": { "name": "Rilder Almeida" },
+  "plugins": [{ "name": "headroom", "source": "./" }]
+}

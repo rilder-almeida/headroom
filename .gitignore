@@ -1,0 +1,4 @@
+.superpowers/
+.claude-plugin/types/
+.task/
+node_modules/
