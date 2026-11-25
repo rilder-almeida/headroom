@@ -105,11 +105,10 @@ export const stageOf = (hit: Hit | null, ladder: readonly Level[]): number =>
   hit === null ? 0 : ladder.findIndex(level => level.name === hit.level.name) + 1
 
 /** The bound that ends a value's level: `<65%` below the next threshold, `>75%` past the last one. */
-export const rangeOf = (value: number, ladder: readonly Level[], isSigned: boolean): string => {
-  const mark = (at: number) => `${isSigned && at > 0 ? '+' : ''}${at}%`
+export const rangeOf = (value: number, ladder: readonly Level[]): string => {
   const next = ladder.find(level => level.at > value)
 
-  return next === undefined ? `>${mark(ladder.at(-1)?.at ?? 0)}` : `<${mark(next.at)}`
+  return next === undefined ? `>${ladder.at(-1)?.at ?? 0}%` : `<${next.at}%`
 }
 
 const rank = (action: Action): number => SEVERITY.indexOf(action)

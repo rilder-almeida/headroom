@@ -67,7 +67,7 @@ describe('full', () => {
         'context                   │            5h               7d',
         'now    52%                │ now        61%              44%',
         'level  warm <65%          │ pace       +12%             +39%',
-        '                          │ level      ok <+20%         warm <+50%',
+        '                          │ level      ok <20%          warm <50%',
         '                          │ out        1h44             2d 19h',
       ],
     ],

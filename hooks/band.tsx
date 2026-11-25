@@ -47,7 +47,7 @@ const windows = (band: BandInput): Column[] =>
         label: window.label,
         used: `${limit.percentUsed}%`,
         pace: pace === null ? 'n/a' : `${pace.value > 0 ? '+' : ''}${pace.value}%`,
-        level: pace === null ? '·' : `${name} ${rangeOf(pace.value, band.config.pace, true)}`,
+        level: pace === null ? '·' : `${name} ${rangeOf(pace.value, band.config.pace)}`,
         color: COLORS[name],
         out: runOut(band.stored[limit.kind], limit, band.now),
       },
@@ -62,7 +62,7 @@ const context = (band: BandInput) => {
   return {
     percent,
     stage: percent === undefined ? -1 : stageOf(hit, band.config.context),
-    level: percent === undefined ? name : `${name} ${rangeOf(percent, band.config.context, false)}`,
+    level: percent === undefined ? name : `${name} ${rangeOf(percent, band.config.context)}`,
     color: COLORS[name],
   }
 }

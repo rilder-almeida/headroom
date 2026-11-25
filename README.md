@@ -60,7 +60,7 @@ Select `⋯` to open the full view. headroom keeps your choice across sessions.
 context                   │            5h               7d
 now    52%                │ now        61%              44%
 level  warm <65%          │ pace       +12%             +39%
-                          │ level      ok <+20%         warm <+50%
+                          │ level      ok <20%          warm <50%
                           │ out        1h44             2d 19h
 ```
 
@@ -192,8 +192,8 @@ When a window resets, the forecast starts again from the average of the new wind
 
 ```
 context  52%  warm <65%
-5h       61%  pace +12%  ok <+20%         out 1h44
-7d       44%  pace +39%  warm <+50%       out 2d 19h
+5h       61%  pace +12%  ok <20%          out 1h44
+7d       44%  pace +39%  warm <50%        out 2d 19h
 ```
 
 ## Reset timer

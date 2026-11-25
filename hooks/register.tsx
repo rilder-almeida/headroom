@@ -59,8 +59,8 @@ const loud = (active: Active, at: Context, only?: (hit: Hit) => boolean): string
 
 const pct = (value: number): string => `${value}%`.padEnd(5)
 
-const standing = (name: string, value: number, ladder: Ladders['context'], isSigned: boolean): string =>
-  `${name} ${rangeOf(value, ladder, isSigned)}`
+const standing = (name: string, value: number, ladder: Ladders['context']): string =>
+  `${name} ${rangeOf(value, ladder)}`
 
 const window = (usage: Limit, now: number, config: Ladders, stored: Forecasts): string => {
   const name = windowOf(usage.kind)?.label ?? usage.kind
@@ -81,7 +81,7 @@ const window = (usage: Limit, now: number, config: Ladders, stored: Forecasts): 
   const level = windowHit(usage, now, config.pace)?.level.name ?? 'ok'
   const speed = `pace ${pace.value > 0 ? '+' : ''}${pace.value}%`
 
-  return `${head}${speed.padEnd(11)}${standing(level, pace.value, config.pace, true).padEnd(17)}${out}`
+  return `${head}${speed.padEnd(11)}${standing(level, pace.value, config.pace).padEnd(17)}${out}`
 }
 
 const report = (usage: SessionUsage, now: number, config: Ladders, stored: Forecasts): string => {
@@ -89,7 +89,7 @@ const report = (usage: SessionUsage, now: number, config: Ladders, stored: Forec
   const lines = [
     percent === undefined
       ? 'context n/a'
-      : `${'context'.padEnd(9)}${pct(percent)}${standing(contextHit(percent, config.context)?.level.name ?? 'ok', percent, config.context, false)}`,
+      : `${'context'.padEnd(9)}${pct(percent)}${standing(contextHit(percent, config.context)?.level.name ?? 'ok', percent, config.context)}`,
   ]
 
   if (usage.rateLimits.length === 0) {

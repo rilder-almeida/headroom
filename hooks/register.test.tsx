@@ -38,8 +38,8 @@ test('the command reports context, windows and pace', async ($, on) => {
 
   expect(text?.split('\n')).toEqual([
     'context  67%  hot <75%',
-    '5h       30%  pace -40%  ok <+20%         out ·',
-    '7d       40%  pace -20%  ok <+20%         out ·',
+    '5h       30%  pace -40%  ok <20%          out ·',
+    '7d       40%  pace -20%  ok <20%          out ·',
   ])
 })
 

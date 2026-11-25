@@ -130,12 +130,12 @@ describe('rangeOf', () => {
     ['context warm', 52, 'context', '<65%'],
     ['context ok', 30, 'context', '<45%'],
     ['context full', 80, 'context', '>75%'],
-    ['pace below zero', -40, 'pace', '<+20%'],
-    ['pace warm', 39, 'pace', '<+50%'],
-    ['pace over', 120, 'pace', '>+100%'],
+    ['pace below zero', -40, 'pace', '<20%'],
+    ['pace warm', 39, 'pace', '<50%'],
+    ['pace over', 120, 'pace', '>100%'],
   ] as const) {
     test(name, () => {
-      expect(rangeOf(value, D[ladder], ladder === 'pace')).toBe(expected)
+      expect(rangeOf(value, D[ladder])).toBe(expected)
     })
   }
 })
