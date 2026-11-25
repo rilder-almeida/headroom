@@ -36,11 +36,15 @@ test('the command reports context, windows and pace', async ($, on) => {
 
   const { text } = await run($)
 
-  expect(text?.split('\n')).toEqual([
+  const lines = text?.split('\n') ?? []
+
+  expect(lines.slice(0, 4)).toEqual([
     'context  67%  hot <75%',
     '5h       30%  pace -40%  ok <20%          out ·',
     '7d       40%  pace -20%  ok <20%          out ·',
+    '',
   ])
+  expect(lines[4]).toMatch(/^Context is hot at 67%\. The 5h window is ok at -40% pace and lasts to its reset at \d\d:\d\d\. The 7d window is ok at -20% pace and lasts to its reset on \w+ at \d\d:\d\d\.$/)
 })
 
 test('the command says why pace is missing', async ($, on) => {
@@ -103,13 +107,23 @@ const harness = async ($: Engine, on: On, stored?: Record<string, unknown>) => {
 
 const WARM_50 = 'headroom: context warm 50%: consider a fresh session at the next natural stop point'
 
-test('a rise past alert toasts once and queues the line', async ($, on) => {
+test('headroom shows no toast', async ($, on) => {
   const { toasts, measure } = await harness($, on)
 
   await measure(50)
-  await measure(52)
+  await measure(80, [{ kind: 'five_hour', percentUsed: 81, resetsAt: resetIn(2.5 * HOUR) }])
 
-  expect(toasts).toEqual([WARM_50])
+  expect(toasts).toEqual([])
+})
+
+test('a rise past alert queues one line', async ($, on) => {
+  const { contexts, measure } = await harness($, on)
+
+  await measure(50)
+  await measure(52)
+  await submit($, 'hi')
+
+  expect(contexts).toEqual([[WARM_50]])
 })
 
 test('the line reaches the model once', async ($, on) => {
@@ -124,7 +138,7 @@ test('the line reaches the model once', async ($, on) => {
 
 test('a finished tool refreshes the level mid-turn', async ($, on) => {
   usage(on, 50, [])
-  const { toasts } = await harness($, on)
+  await harness($, on)
 
   const after = await $.classic.PostToolUse({
     tool_name: 'Bash',
@@ -133,23 +147,23 @@ test('a finished tool refreshes the level mid-turn', async ($, on) => {
     tool_use_id: 't1',
   })
 
-  expect(toasts).toEqual([WARM_50])
   expect(after.additionalContext).toEqual([WARM_50])
 })
 
 test('parallel tool results raise one notice', async ($, on) => {
   usage(on, 50, [])
-  const { toasts } = await harness($, on)
+  await harness($, on)
   const result = (id: string) =>
     $.classic.PostToolUse({ tool_name: 'Read', tool_input: {}, tool_response: {}, tool_use_id: id })
 
-  await Promise.all([result('t1'), result('t2'), result('t3')])
+  const ran = await Promise.all([result('t1'), result('t2'), result('t3')])
 
-  expect(toasts).toEqual([WARM_50])
+  expect(ran.flatMap(one => one.additionalContext ?? [])).toEqual([WARM_50])
 })
 
 test('the forecast is stored only when a window moves', async ($, on) => {
   const stored: unknown[] = []
+  const samples: unknown[] = []
   const used = { now: 40 }
   const clock = mock.clock(on, { now: NOW })
   on('session.usage', () => ({
@@ -161,7 +175,11 @@ test('the forecast is stored only when a window moves', async ($, on) => {
   }))
   on('store.get', () => ({ value: undefined }))
   on('store.set', (_, e) => {
-    stored.push(e.value)
+    if (e.key === 'forecast') {
+      stored.push(e.value)
+    } else {
+      samples.push(e.value)
+    }
 
     return { value: undefined }
   })
@@ -180,6 +198,49 @@ test('the forecast is stored only when a window moves', async ($, on) => {
   await result('t3')
 
   expect(stored).toHaveLength(2)
+  expect(samples).toHaveLength(2)
+})
+
+test('a burst tells the model when it lights, keeps quiet in its pause, and tells again when worse', async ($, on) => {
+  const fill = { now: 30 }
+  const clock = mock.clock(on, { now: NOW })
+  on('session.usage', () => ({
+    value: { startedAt: NOW, context: { window: 1_000_000, percent: fill.now }, rateLimits: [] },
+  }))
+  mock.store(on)
+  on('ui.toast', () => ({ value: undefined }))
+  on('classic.PostToolUse', () => ({}))
+  on('command.register', () => ({ value: { command: 'headroom' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const notes: (readonly string[] | undefined)[] = []
+  const result = async (percent: number) => {
+    fill.now = percent
+    await clock.advance(1_000)
+    const ran = await $.classic.PostToolUse({ tool_name: 'Read', tool_input: {}, tool_response: {}, tool_use_id: `t${percent}` })
+
+    notes.push(ran.additionalContext)
+  }
+
+  await result(30)
+  await result(41)
+  await result(20)
+  await result(21)
+  await result(22)
+  await result(33)
+  await result(45)
+
+  expect(notes).toEqual([
+    undefined,
+    ['headroom: context burst, up 11% in the last 1 tool call'],
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    [
+      'headroom: context warm 45%: consider a fresh session at the next natural stop point\nheadroom: context burst, up 25% in the last 4 tool calls',
+    ],
+  ])
 })
 
 test('the line reaches the model mid-turn', async ($, on) => {
@@ -198,22 +259,21 @@ test('the line reaches the model mid-turn', async ($, on) => {
   expect(contexts).toEqual([undefined])
 })
 
-test('a fall back to ok toasts nothing', async ($, on) => {
-  const { toasts, contexts, measure } = await harness($, on)
+test('a fall back to ok tells nothing', async ($, on) => {
+  const { contexts, measure } = await harness($, on)
 
   await measure(50)
   await submit($, 'hi')
   await measure(10)
   await submit($, 'again')
 
-  expect(toasts).toEqual([WARM_50])
   expect(contexts).toEqual([[WARM_50], undefined])
 })
 
 const HOT_67 = 'headroom: context hot 67%: finish the current piece only, then start a fresh session'
 
-test('only a rise toasts, every change into alert reaches the model', async ($, on) => {
-  const { toasts, contexts, measure } = await harness($, on)
+test('every change into alert reaches the model', async ($, on) => {
+  const { contexts, measure } = await harness($, on)
 
   await measure(50)
   await submit($, 'a')
@@ -222,32 +282,38 @@ test('only a rise toasts, every change into alert reaches the model', async ($, 
   await measure(50)
   await submit($, 'c')
 
-  expect(toasts).toEqual([WARM_50, HOT_67])
   expect(contexts).toEqual([[WARM_50], [HOT_67], [WARM_50]])
 })
 
-test('a rise to a level set to none toasts nothing', { options: { context_warm_action: 'none' } }, async ($, on) => {
-  const { toasts, measure } = await harness($, on)
+test('a rise to a level set to none tells nothing', { options: { context_warm_action: 'none' } }, async ($, on) => {
+  const { contexts, measure } = await harness($, on)
 
   await measure(50)
+  await submit($, 'hi')
 
-  expect(toasts).toEqual([])
+  expect(contexts).toEqual([undefined])
 })
 
 test('a pace line carries its run-out time', async ($, on) => {
-  const { toasts, measure } = await harness($, on)
+  const { contexts, measure } = await harness($, on)
 
   await measure(10, [{ kind: 'five_hour', percentUsed: 81, resetsAt: resetIn(2.5 * HOUR) }])
+  await submit($, 'hi')
 
-  expect(toasts).toEqual(['headroom: 5h pace hot +62%, out in 35m: show the pace and ask before starting long work'])
+  expect(contexts).toEqual([['headroom: 5h pace hot +62%, out in 35m: show the pace and ask before starting long work']])
 })
 
 test('a reading steps the forecast and stores it', async ($, on) => {
   const stored: unknown[] = []
+  const samples: unknown[] = []
   mock.clock(on, { now: NOW })
   on('store.get', () => ({ value: undefined }))
   on('store.set', (_, e) => {
-    stored.push(e.value)
+    if (e.key === 'forecast') {
+      stored.push(e.value)
+    } else {
+      samples.push(e.value)
+    }
 
     return { value: undefined }
   })
@@ -261,23 +327,26 @@ test('a reading steps the forecast and stores it', async ($, on) => {
   await $.session.measure({ context: { window: 1_000_000, percent: 10 }, rateLimits: [limit], changed: ['rateLimits'] })
 
   expect(stored.at(-1)).toMatchObject({ five_hour: { used: 81, resetsAt: limit.resetsAt } })
+  expect(samples.at(-1)).toEqual({ five_hour: { resetsAt: limit.resetsAt, samples: [{ at: NOW, used: 81 }] } })
 })
 
 test('a jump to full is one transition', async ($, on) => {
-  const { toasts, measure } = await harness($, on)
+  const { contexts, measure } = await harness($, on)
 
   await measure(10)
   await measure(80)
+  await submit($, 'hi')
 
-  expect(toasts).toEqual(['headroom: context full 80%: stop now and start a fresh session'])
+  expect(contexts).toEqual([['headroom: context full 80%: stop now and start a fresh session']])
 })
 
 test('no reading, no level', async ($, on) => {
-  const { toasts, measure } = await harness($, on)
+  const { contexts, measure } = await harness($, on)
 
   await measure(undefined)
+  await submit($, 'hi')
 
-  expect(toasts).toEqual([])
+  expect(contexts).toEqual([undefined])
 })
 
 test('the band always shows, above the rows beneath it', async ($, on) => {
@@ -546,7 +615,7 @@ test('the timer arms past wake_at and fires at reset', async ($, on) => {
   expect(prompts).toHaveLength(1)
   expect(prompts[0]).toContain('5h window reset')
   expect(prompts[0]).toContain('context  20%  ok <45%')
-  expect(toasts).toContain('headroom: the 5h window reset')
+  expect(toasts).toEqual([])
 })
 
 test('one timer per reset', async ($, on) => {

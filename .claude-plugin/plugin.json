@@ -1,6 +1,6 @@
 {
   "name": "headroom",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "description": "Alerts, asks or blocks as the context window fills and the rate-limit pace runs hot.",
   "author": {
     "name": "Rilder Almeida"
@@ -62,6 +62,12 @@
       ],
       "description": "What headroom does at the context full level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (refuse tool calls)."
     },
+    "context_margin": {
+      "type": "number",
+      "title": "Context margin (points)",
+      "default": 0,
+      "description": "A context level stays on until the fill falls this many points below where the level starts."
+    },
     "pace_warm_at": {
       "type": "number",
       "title": "Pace warm at (%)",
@@ -116,11 +122,101 @@
       ],
       "description": "What headroom does at the pace over level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (refuse tool calls)."
     },
+    "pace_5h_margin": {
+      "type": "number",
+      "title": "5h pace margin (points)",
+      "default": 10,
+      "description": "A 5-hour pace level stays on until the pace falls this many points below where the level starts, so a pace that wavers on a threshold sends no repeated lines."
+    },
+    "pace_7d_margin": {
+      "type": "number",
+      "title": "7d pace margin (points)",
+      "default": 5,
+      "description": "A 7-day pace level stays on until the pace falls this many points below where the level starts."
+    },
     "wake_at": {
       "type": "number",
       "title": "Wake at (%)",
       "default": 75,
       "description": "When the 5-hour window passes this percent, headroom wakes the session at its reset. 0 turns the timer off."
+    },
+    "burst_factor": {
+      "type": "number",
+      "title": "Burst factor",
+      "default": 3,
+      "description": "How many times the sustainable rate (the rate that empties a window exactly at its reset) recent spend must reach to count as a usage burst."
+    },
+    "burst_release_factor": {
+      "type": "number",
+      "title": "Burst release factor",
+      "default": 2,
+      "description": "A lit usage burst goes out only after recent spend stays below this many times the sustainable rate for a quarter of its lookback. Must not exceed burst_factor."
+    },
+    "burst_5h_minutes": {
+      "type": "number",
+      "title": "5h burst lookback (minutes)",
+      "default": 20,
+      "description": "How far back the 5-hour usage burst measures recent spend."
+    },
+    "burst_7d_hours": {
+      "type": "number",
+      "title": "7d burst lookback (hours)",
+      "default": 3,
+      "description": "How far back the 7-day usage burst measures recent spend. One point of the 7-day window is about 1h40 of sustainable spend, so a lookback under a few hours sees too few points."
+    },
+    "burst_context_calls": {
+      "type": "number",
+      "title": "Context burst tool calls",
+      "default": 5,
+      "description": "How many tool calls the context burst looks back over. A whole number."
+    },
+    "burst_context_points": {
+      "type": "number",
+      "title": "Context burst rise (points)",
+      "default": 10,
+      "description": "How many points the context fill must rise over those tool calls to count as a context burst."
+    },
+    "burst_context_release_points": {
+      "type": "number",
+      "title": "Context burst release (points)",
+      "default": 5,
+      "description": "A lit context burst goes out only after the rise over its tool calls stays below this many points for a quarter of those calls. Must not exceed burst_context_points."
+    },
+    "forecast_5h_half_life_minutes": {
+      "type": "number",
+      "title": "5h forecast half-life (minutes)",
+      "default": 60,
+      "description": "How long a 5-hour reading takes to weigh half as much in the run-out forecast. Shorter follows recent spend faster and jumps more."
+    },
+    "forecast_7d_half_life_hours": {
+      "type": "number",
+      "title": "7d forecast half-life (hours)",
+      "default": 24,
+      "description": "How long a 7-day reading takes to weigh half as much in the run-out forecast."
+    },
+    "reset_jitter_minutes": {
+      "type": "number",
+      "title": "Reset jitter (minutes)",
+      "default": 5,
+      "description": "How far apart two reset times may sit and still count as the same window."
+    },
+    "pace_warmup_percent": {
+      "type": "number",
+      "title": "Pace warm-up (%)",
+      "default": 10,
+      "description": "The share of a window, from its start, where headroom reports no pace yet because too little time passed to measure it. Below 100."
+    },
+    "wake_delay_seconds": {
+      "type": "number",
+      "title": "Wake delay (seconds)",
+      "default": 60,
+      "description": "How long after the 5-hour reset the reset timer wakes the session."
+    },
+    "burst_symbol": {
+      "type": "string",
+      "title": "Burst symbol",
+      "default": "󰈸",
+      "description": "The mark the band shows while a burst is on. The default is the Nerd Font fire icon (nf-md-fire, U+F0238): without a Nerd Font in the terminal it shows as an empty box, so set a plain character such as ! instead."
     }
   }
 }

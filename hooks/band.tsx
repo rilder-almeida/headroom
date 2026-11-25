@@ -1,13 +1,23 @@
 import type { Color } from 'claude-code'
 
-import type { Forecasts, LevelName, Reading } from '../types'
+import type { Forecasts, Held, Latches, LevelName, Reading, Samples } from '../types'
 import type { Ladders } from './config'
 import { runOut } from './forecast'
 import { contextHit, paceOf, rangeOf, stageOf, windowHit, windowOf } from './levels'
 import type { Limit } from './levels'
 
-/** What the band draws from: the last reading, the stored forecasts, the ladders and the time. */
-export type BandInput = { reading: Reading | null; stored: Forecasts; config: Ladders; now: number }
+/** What the band draws from: the last reading, the stored forecasts, burst history and latches, the configuration, the time and the local offset from UTC at a given time, in minutes as `Date.getTimezoneOffset` gives it. */
+export type BandInput = {
+  reading: Reading | null
+  stored: Forecasts
+  samples: Samples
+  trail: readonly number[]
+  latches: Latches
+  held: Held
+  config: Ladders
+  now: number
+  offset: (ms: number) => number
+}
 
 /** A run of text in one color; no color draws in the default text color. */
 export type Span = { text: string; color?: Color }
@@ -29,7 +39,11 @@ const subtle = (text: string): Span => ({ text, color: 'subtle' })
 /** The text of a row, its colors dropped. */
 export const plain = (spans: readonly Span[]): string => spans.map(span => span.text).join('')
 
-type Column = { label: string; used: string; pace: string; level: string; color: Color; out: string }
+const width = (text: string): number => [...text].length
+
+const pad = (text: string, to: number): string => text + ' '.repeat(Math.max(0, to - width(text)))
+
+type Column = { label: string; used: string; pace: string; level: string; color: Color; out: string; isBurst: boolean }
 
 const windows = (band: BandInput): Column[] =>
   (band.reading?.rateLimits ?? []).flatMap((limit: Limit) => {
@@ -39,8 +53,8 @@ const windows = (band: BandInput): Column[] =>
       return []
     }
 
-    const pace = paceOf(limit, band.now)
-    const name = windowHit(limit, band.now, band.config.pace)?.level.name ?? 'ok'
+    const pace = paceOf(limit, band.now, band.config.tuning.warmup)
+    const name = windowHit(limit, band.now, band.config.pace, band.held, band.config.tuning)?.level.name ?? 'ok'
 
     return [
       {
@@ -49,14 +63,15 @@ const windows = (band: BandInput): Column[] =>
         pace: pace === null ? 'n/a' : `${pace.value > 0 ? '+' : ''}${pace.value}%`,
         level: pace === null ? '·' : `${name} ${rangeOf(pace.value, band.config.pace)}`,
         color: COLORS[name],
-        out: runOut(band.stored[limit.kind], limit, band.now),
+        out: runOut(band.stored[limit.kind], limit, band.now, band.config.tuning),
+        isBurst: band.latches[limit.kind]?.isOn === true,
       },
     ]
   })
 
 const context = (band: BandInput) => {
   const percent = band.reading?.context
-  const hit = percent === undefined ? null : contextHit(percent, band.config.context)
+  const hit = percent === undefined ? null : contextHit(percent, band.config.context, band.held, band.config.tuning)
   const name = hit?.level.name ?? 'ok'
 
   return {
@@ -64,10 +79,13 @@ const context = (band: BandInput) => {
     stage: percent === undefined ? -1 : stageOf(hit, band.config.context),
     level: percent === undefined ? name : `${name} ${rangeOf(percent, band.config.context)}`,
     color: COLORS[name],
+    isBurst: percent !== undefined && band.latches.context?.isOn === true,
   }
 }
 
-/** The always-visible row: context stage dots, then pace per window and its run-out time when it runs out before the reset. */
+const marked = (text: string, isBurst: boolean, symbol: string): string => (isBurst ? `${text} ${symbol}` : text)
+
+/** The always-visible row: context stage dots, pace per window and its run-out time when it runs out before the reset, then the burst symbol while any burst is on. */
 export const compact = (band: BandInput): Span[] => {
   const ctx = context(band)
   const dots = [0, 1, 2, 3].map(i => (i <= ctx.stage ? '●' : '○')).join('')
@@ -89,6 +107,10 @@ export const compact = (band: BandInput): Span[] => {
     }
   })
 
+  if (ctx.isBurst || columns.some(column => column.isBurst)) {
+    spans.push({ text: `   ${band.config.symbol}`, color: 'error' })
+  }
+
   return spans
 }
 
@@ -98,7 +120,7 @@ export const full = (band: BandInput): Span[][] => {
   const columns = windows(band)
   const block: Span[][] = [
     [subtle('context')],
-    [subtle('now'.padEnd(7)), { text: ctx.percent === undefined ? 'n/a' : `${ctx.percent}%` }],
+    [subtle('now'.padEnd(7)), { text: ctx.percent === undefined ? 'n/a' : marked(`${ctx.percent}%`, ctx.isBurst, band.config.symbol) }],
     [subtle('level'.padEnd(7)), { text: ctx.level, color: ctx.color }],
   ]
 
@@ -110,20 +132,18 @@ export const full = (band: BandInput): Span[][] => {
     columns.map((column, i) => {
       const cell = pick(column)
 
-      return i === columns.length - 1 ? cell : { ...cell, text: cell.text.padEnd(COLUMN) }
+      return i === columns.length - 1 ? cell : { ...cell, text: pad(cell.text, COLUMN) }
     })
   const grid: Span[][] = [
     [subtle(''.padEnd(LABEL)), ...cells(column => subtle(column.label))],
     [subtle('now'.padEnd(LABEL)), ...cells(column => ({ text: column.used }))],
-    [subtle('pace'.padEnd(LABEL)), ...cells(column => ({ text: column.pace, color: column.color }))],
+    [subtle('pace'.padEnd(LABEL)), ...cells(column => ({ text: marked(column.pace, column.isBurst, band.config.symbol), color: column.color }))],
     [subtle('level'.padEnd(LABEL)), ...cells(column => ({ text: column.level, color: column.color }))],
     [subtle('out'.padEnd(LABEL)), ...cells(column => ({ text: column.out }))],
   ]
 
   return grid.map((row, i) => {
     const head = block[i] ?? []
-    const width = plain(head).length
-
-    return [...head, subtle(`${''.padEnd(LEFT - width)}│ `), ...row]
+    return [...head, subtle(`${pad('', LEFT - width(plain(head)))}│ `), ...row]
   })
 }

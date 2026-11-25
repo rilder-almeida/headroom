@@ -1,20 +1,21 @@
 import { paceOf, windowOf } from './levels'
 import type { Limit } from './levels'
-import type { Forecast } from '../types'
+import type { Forecast, Tuning } from '../types'
 
 export type { Forecast }
 
 const MIN = 60_000
-const HOUR = 60 * MIN
-const JITTER = 5 * MIN
+/** Whether two reset times sit close enough to name the same window. */
+export const isSameReset = (a: number, b: number, tuning: Tuning): boolean => Math.abs(a - b) <= tuning.jitter
 
-/** How long a reading takes to weigh half as much, per window kind. */
-export const HALF_LIFE: Record<string, number> = { five_hour: HOUR, seven_day: 24 * HOUR }
+/** How long a reading of a window kind takes to weigh half as much, or undefined for a kind headroom does not know. */
+export const halfLifeOf = (kind: string, tuning: Tuning): number | undefined =>
+  kind === 'five_hour' || kind === 'seven_day' ? tuning.halfLife[kind] : undefined
 
-const seed = (limit: Limit, now: number, reset: number): Forecast | undefined => {
+const seed = (limit: Limit, now: number, reset: number, tuning: Tuning): Forecast | undefined => {
   const window = windowOf(limit.kind)
 
-  if (window === undefined || limit.resetsAt === undefined || paceOf(limit, now) === null) {
+  if (window === undefined || limit.resetsAt === undefined || paceOf(limit, now, tuning.warmup) === null) {
     return undefined
   }
 
@@ -27,9 +28,9 @@ const seed = (limit: Limit, now: number, reset: number): Forecast | undefined =>
 }
 
 /** The forecast after one more reading, smoothed with the window's half-life. */
-export const step = (prev: Forecast | undefined, limit: Limit, now: number): Forecast | undefined => {
+export const step = (prev: Forecast | undefined, limit: Limit, now: number, tuning: Tuning): Forecast | undefined => {
   const reset = limit.resetsAt === undefined ? NaN : Date.parse(limit.resetsAt)
-  const halfLife = HALF_LIFE[limit.kind]
+  const halfLife = halfLifeOf(limit.kind, tuning)
 
   if (Number.isNaN(reset) || halfLife === undefined) {
     return undefined
@@ -37,11 +38,11 @@ export const step = (prev: Forecast | undefined, limit: Limit, now: number): For
 
   const isSameWindow =
     prev !== undefined &&
-    Math.abs(reset - Date.parse(prev.resetsAt)) <= JITTER &&
+    isSameReset(reset, Date.parse(prev.resetsAt), tuning) &&
     limit.percentUsed >= prev.used
 
   if (!isSameWindow) {
-    return seed(limit, now, reset)
+    return seed(limit, now, reset, tuning)
   }
 
   const gap = now - prev.at
@@ -106,8 +107,8 @@ export const isForecast = (value: unknown): value is Forecast =>
   isNumber(value.rate)
 
 /** The run-out text of a window from its stored forecast: a duration, or `·` when it lasts to its reset. */
-export const runOut = (stored: Forecast | undefined, limit: Limit, now: number): string => {
-  const out = outIn(step(stored, limit, now), limit, now)
+export const runOut = (stored: Forecast | undefined, limit: Limit, now: number, tuning: Tuning): string => {
+  const out = outIn(step(stored, limit, now, tuning), limit, now)
 
   return out === null ? '·' : duration(out)
 }

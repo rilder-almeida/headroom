@@ -2,6 +2,9 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { duration, isForecast, outIn, runOut, step } from './forecast'
 import type { Forecast } from './forecast'
+import { ladders } from './config'
+
+const T = ladders({}).tuning
 
 const MIN = 60_000
 const HOUR = 3_600_000
@@ -25,7 +28,7 @@ describe('step', () => {
     ['reseeds when usage drops', prev7, { kind: 'seven_day', percentUsed: 10, resetsAt: R7 }, NOW, 10 / (84 * HOUR)],
   ] as const) {
     test(name, () => {
-      const got = step(prev, limit, now)
+      const got = step(prev, limit, now, T)
 
       expect(Math.abs((got?.rate ?? NaN) / expected - 1)).toBeLessThan(1e-9)
       expect(got).toMatchObject({ at: now, used: limit.percentUsed, resetsAt: limit.resetsAt })
@@ -40,7 +43,7 @@ describe('step', () => {
     ['no reset time', undefined, { kind: 'five_hour', percentUsed: 50 }, NOW, undefined],
   ] as const) {
     test(name, () => {
-      expect(step(prev, limit, now)).toEqual(expected)
+      expect(step(prev, limit, now, T)).toEqual(expected)
     })
   }
 })
@@ -103,7 +106,7 @@ describe('runOut', () => {
     ['lasts to the reset at a slow stored rate', { at: NOW - MIN, used: 81, resetsAt: limit.resetsAt, rate: 1 / HOUR }, '·'],
   ] as const) {
     test(name, () => {
-      expect(runOut(stored, limit, NOW)).toBe(expected)
+      expect(runOut(stored, limit, NOW, T)).toBe(expected)
     })
   }
 })

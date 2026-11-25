@@ -13,8 +13,13 @@ const at = (ms: number) => new Date(NOW + ms).toISOString()
 const input = (context: number | undefined, rateLimits: Reading['rateLimits']): BandInput => ({
   reading: { context, rateLimits },
   stored: {},
+  samples: {},
+  trail: [],
+  latches: {},
+  held: {},
   config: ladders({}),
   now: NOW,
+  offset: () => 0,
 })
 
 const CALM = input(31, [
@@ -27,6 +32,21 @@ const WARM = input(52, [
 ])
 const TIGHT = input(80, [{ kind: 'five_hour', percentUsed: 81, resetsAt: at(2.5 * HOUR) }])
 const SOLO = input(52, [])
+const FIRE = '\u{F0238}'
+const BURST: BandInput = {
+  ...WARM,
+  trail: [41, 52],
+  latches: { context: { isOn: true, belowSince: null, told: null }, five_hour: { isOn: true, belowSince: null, told: null } },
+  samples: {
+    five_hour: {
+      resetsAt: at(137 * MIN),
+      samples: [
+        { at: NOW - 20 * MIN, used: 40 },
+        { at: NOW, used: 61 },
+      ],
+    },
+  },
+}
 
 describe('compact', () => {
   for (const [name, band, expected, colors] of [
@@ -89,4 +109,34 @@ describe('full', () => {
 
     expect(level?.color).toBe('warning')
   })
+
+  test('a burst marks the cells that burst', () => {
+    expect(full(BURST).map(plain).slice(1, 3)).toEqual([
+      `now    52% ${FIRE}              │ now        61%              44%`,
+      `level  warm <65%          │ pace       +12% ${FIRE}           +39%`,
+    ])
+  })
+
+  test('the separator sits in one column with a burst on', () => {
+    const columns = full(BURST).map(row => [...plain(row)].indexOf('│'))
+
+    expect(new Set(columns).size).toBe(1)
+  })
+})
+
+describe('burst in the compact row', () => {
+  for (const [name, band, expected] of [
+    ['no burst', WARM, undefined],
+    ['a 5h burst', { ...BURST, latches: { five_hour: { isOn: true, belowSince: null, told: null } } }, FIRE],
+    ['a context burst', { ...BURST, latches: { context: { isOn: true, belowSince: null, told: null } } }, FIRE],
+    ['a burst gone out', { ...BURST, latches: { context: { isOn: false, belowSince: null, told: null } } }, undefined],
+    ['a custom symbol', { ...BURST, config: ladders({ burst_symbol: '!!' }) }, '!!'],
+  ] as const) {
+    test(name, () => {
+      const last = compact(band).at(-1)
+
+      expect(last?.text.trim() === expected ? last?.color : undefined).toBe(expected === undefined ? undefined : 'error')
+      expect(plain(compact(band)).endsWith(`   ${expected ?? ''}`)).toBe(expected !== undefined)
+    })
+  }
 })

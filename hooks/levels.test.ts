@@ -10,6 +10,7 @@ import {
   rangeOf,
   sameGate,
   sameLevels,
+  settle,
   stageOf,
   windowHit,
 } from './levels'
@@ -29,7 +30,7 @@ describe('contextHit', () => {
     [undefined, null],
   ] as const) {
     test(`${percent} gives ${expected}`, () => {
-      expect(contextHit(percent, D.context)?.level.name ?? null).toBe(expected)
+      expect(contextHit(percent, D.context, {}, D.tuning)?.level.name ?? null).toBe(expected)
     })
   }
 })
@@ -45,7 +46,7 @@ describe('paceOf', () => {
     ['a spend limit', { kind: 'spend_limit', percentUsed: 75, resetsAt: resetIn(HOUR) }, null],
   ] as const) {
     test(name, () => {
-      expect(paceOf(limit, NOW)).toEqual(expected)
+      expect(paceOf(limit, NOW, D.tuning.warmup)).toEqual(expected)
     })
   }
 })
@@ -58,13 +59,15 @@ test('paceHit takes the worst window', () => {
     ],
     NOW,
     D.pace,
+    {},
+    D.tuning,
   )
 
   expect(hit).toEqual({ ladder: 'pace', level: D.pace[1], value: 84, window: '7d' })
 })
 
 test('paceHit is null with no windows', () => {
-  expect(paceHit([], NOW, D.pace)).toBeNull()
+  expect(paceHit([], NOW, D.pace, {}, D.tuning)).toBeNull()
 })
 
 const full = { ladder: 'context', level: D.context[2]!, value: 77 } as const
@@ -160,9 +163,36 @@ describe('windowHit', () => {
     ['under 10% elapsed', { kind: 'five_hour', percentUsed: 5, resetsAt: resetIn(4.6 * HOUR) }, null],
   ] as const) {
     test(name, () => {
-      const hit = windowHit(limit, NOW, D.pace)
+      const hit = windowHit(limit, NOW, D.pace, {}, D.tuning)
 
       expect(hit === null ? null : { name: hit.level.name, value: hit.value, window: hit.ladder === 'pace' ? hit.window : null }).toEqual(expected)
     })
   }
+})
+
+describe('settle', () => {
+  for (const [name, value, held, margin, expected] of [
+    ['rises to the level a value reaches', 21, undefined, 5, 'warm'],
+    ['stays below the first level', 19, undefined, 5, undefined],
+    ['holds a level within the margin', 16, 'warm', 5, 'warm'],
+    ['holds at the margin edge', 15, 'warm', 5, 'warm'],
+    ['drops past the margin', 14.9, 'warm', 5, undefined],
+    ['drops one level only as far as the value sits', 40, 'hot', 5, 'warm'],
+    ['holds the higher level over the lower one', 46, 'hot', 5, 'hot'],
+    ['rises over a held lower level', 55, 'warm', 5, 'hot'],
+    ['a zero margin drops at once', 19, 'warm', 0, undefined],
+  ] as const) {
+    test(name, () => {
+      expect(settle(value, D.pace, held, margin)?.name).toBe(expected)
+    })
+  }
+})
+
+test('the window margin comes from its kind', () => {
+  const limit = { kind: 'five_hour', percentUsed: 48, resetsAt: resetIn(2.5 * HOUR) }
+  const pace = paceOf(limit, NOW, D.tuning.warmup)?.value
+
+  expect(pace).toBe(-4)
+  expect(windowHit({ ...limit, percentUsed: 55 }, NOW, D.pace, { five_hour: 'warm' }, D.tuning)?.level.name).toBe('warm')
+  expect(windowHit({ ...limit, percentUsed: 55 }, NOW, D.pace, {}, D.tuning)).toBeNull()
 })

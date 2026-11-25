@@ -19,8 +19,10 @@
   - `▲`/`▼` and a percent: pace, faster or slower than an even spread until the reset.
   - `⧗` and a time: when the window runs out at the current speed. No `⧗` means that the window lasts until its reset.
   - Colors: gray `ok`, yellow `warm`, orange `hot`, red `full`/`over`.
-- Select `⋯` at the end of the row for the full view: rows `now`, `pace`, `level` (for example `warm <65%`: warm until 65%) and `out`. The choice persists across sessions.
-- `/headroom` prints the same reading as text.
+  - `󰈸` at the end: a burst is on (see Bursts).
+- Select `⋯` at the end of the row for the full view: rows `now`, `pace`, `level` (for example `warm <65%`: warm until 65%) and `out`, the burst symbol next to the number in burst, then a summary line. The choice persists across sessions.
+- `/headroom` prints the same reading as text, with the summary line at the end.
+- Summary line example: `Context is warm at 41%, up 12% in the last 5 tool calls. The 5h window is hot at +45% pace and runs out 1h05 before its reset, at 17:35. The last 20 minutes burned 60% per hour, enough to empty it by 16:50. The 7d window is warm at +38% pace and runs out 11h before its reset, on Thursday at 22:00, so 5h is the tighter limit now.` Times are local.
 - Without a Claude subscription there are no rate-limit windows, so only the context level shows.
 
 ## Levels and actions
@@ -35,11 +37,27 @@
 | Pace | `over` | +100% | `ask` |
 
 - Pace uses the worse of the 5-hour and 7-day windows, and counts only after the first 10% of a window.
+- Margins: a level starts at its threshold and ends only when the value falls the margin below it, so a value that wavers on a threshold sends no repeated lines. Defaults: 10 points for the 5-hour pace, 5 for the 7-day pace, 0 for the context.
 - `none`: nothing besides the band.
-- `alert`: a notice when the level rises, and one line to Claude on every change into an alerting level, for example `headroom: 7d pace warm +39%, out in 2d 19h: spending faster than the window allows, ease off`.
+- `alert`: one line to Claude on every change into an alerting level, sent once even when several tool results arrive together, for example `headroom: 7d pace warm +39%, out in 2d 19h: spending faster than the window allows, ease off`.
 - `ask`: before the next tool call, the question `Block tools until this level changes?` with `Continue` or `Block`. Closing it with no answer lets the tool run and asks again next time. The answer holds until a level with `ask` or `block` changes. In a session with nobody to ask (`claude -p`), `ask` acts as `alert`.
 - `block`: every tool call in the main session is refused with the level line, until the level goes down. Subagents and questions to the user are never blocked.
 - If two levels are active, the most severe action counts.
+
+## Bursts
+
+- 5-hour usage burst: lights when the spend of the last 20 minutes reaches 3 times the sustainable rate (the rate that empties the window at its reset). Goes out after 5 minutes under 2 times.
+- 7-day usage burst: the same over the last 3 hours. Goes out after 45 minutes under 2 times.
+- Context burst: lights when the context fill rises 10 points over the last 5 tool calls. Goes out after 2 tool calls with a rise under 5.
+- Claude gets one line when a burst lights, for example `headroom: 5h burst, 60% per hour over the last 20 minutes`. A burst that lights again inside its lookback sends no line, unless it got worse: 1.5 times the last rate, or 10 more points of rise.
+
+## Burst symbol font
+
+- The default symbol `󰈸` is the Nerd Fonts fire icon (`nf-md-fire`, U+F0238). The terminal must use a Nerd Font, or it shows an empty box.
+- macOS: `brew install --cask font-fira-code-nerd-font`
+- Linux: download `FiraCode.zip` from https://github.com/ryanoasis/nerd-fonts/releases/latest, extract it into `~/.local/share/fonts`, then run `fc-cache -f`.
+- Windows: download `FiraCode.zip` from the same page, extract it, and install the `.ttf` files.
+- Then set `FiraCode Nerd Font` as the terminal font. Without a Nerd Font, set `burst_symbol` to a plain character such as `!`.
 
 ## Configuration
 
@@ -47,6 +65,11 @@
 - `<number>_<level>_at`: the threshold, a number. Keys: `context_warm_at`, `context_hot_at`, `context_full_at`, `pace_warm_at`, `pace_hot_at`, `pace_over_at`.
 - `<number>_<level>_action`: one of `none`, `alert`, `ask`, `block`. Keys: `context_warm_action`, `context_hot_action`, `context_full_action`, `pace_warm_action`, `pace_hot_action`, `pace_over_action`.
 - The thresholds of one number must go up from level to level. Otherwise headroom does not load and names the fields.
+- Bursts: `burst_factor` (3), `burst_release_factor` (2, not above `burst_factor`), `burst_5h_minutes` (20), `burst_7d_hours` (3), `burst_context_calls` (5, whole number), `burst_context_points` (10), `burst_context_release_points` (5, not above `burst_context_points`), `burst_symbol` (`󰈸`).
+- Margins, in points: `pace_5h_margin` (10), `pace_7d_margin` (5), `context_margin` (0).
+- Forecast: `forecast_5h_half_life_minutes` (60), `forecast_7d_half_life_hours` (24).
+- Other: `pace_warmup_percent` (10, below 100), `reset_jitter_minutes` (5), `wake_delay_seconds` (60).
+- A value out of range stops headroom from loading, and names the field.
 - `wake_at` (default 75): when the 5-hour window passes this percent, headroom sends a prompt with a fresh reading at the window's reset. `0` turns it off.
 
 ## Upgrade from 0.x

@@ -1,4 +1,4 @@
-import type { Action, Active, Hit, Level, LevelName } from '../types'
+import type { Action, Active, Held, Hit, Level, LevelName, Tuning } from '../types'
 
 /** One rate-limit window as the engine reports it. */
 export type Limit = { kind: string; percentUsed: number; resetsAt?: string }
@@ -32,24 +32,38 @@ export const windowOf = (kind: string): { length: number; label: '5h' | '7d' } |
 const highest = (value: number, ladder: readonly Level[]): Level | undefined =>
   ladder.filter(level => level.at <= value).at(-1)
 
-/** The context level reached by a fill percent, or null. */
+const marginOf = (key: string, tuning: Tuning): number =>
+  key === 'context' || key === 'five_hour' || key === 'seven_day' ? tuning.margin[key] : 0
+
+/** The level a value stands at: the highest it reaches, or a higher level it held before while it sits within the margin below it. */
+export const settle = (value: number, ladder: readonly Level[], held: LevelName | undefined, margin: number): Level | undefined => {
+  const reached = highest(value, ladder)
+  const kept = ladder.find(level => level.name === held)
+
+  return kept !== undefined && kept.at > (reached?.at ?? -Infinity) && value >= kept.at - margin ? kept : reached
+}
+
+/** The context level a fill percent stands at, the margin holding the last level, or null. */
 export const contextHit = (
   percent: number | undefined,
   ladder: readonly Level[],
+  held: Held,
+  tuning: Tuning,
 ): Hit | null => {
   if (percent === undefined) {
     return null
   }
 
-  const level = highest(percent, ladder)
+  const level = settle(percent, ladder, held.context, marginOf('context', tuning))
 
   return level === undefined ? null : { ladder: 'context', level, value: percent }
 }
 
-/** How much faster than an even spread to its reset a window is spent, in percent. */
+/** How much faster than an even spread to its reset a window is spent, in percent, once the warm-up share of the window has passed. */
 export const paceOf = (
   limit: Limit,
   now: number,
+  warmup: number,
 ): { value: number; window: '5h' | '7d' } | null => {
   const window = windowOf(limit.kind)
   const reset = limit.resetsAt === undefined ? NaN : Date.parse(limit.resetsAt)
@@ -61,7 +75,7 @@ export const paceOf = (
   const left = reset - now
   const elapsed = window.length - left
 
-  if (left <= 0 || left > window.length || elapsed < window.length / 10) {
+  if (left <= 0 || left > window.length || elapsed < window.length * warmup) {
     return null
   }
 
@@ -71,10 +85,10 @@ export const paceOf = (
   }
 }
 
-/** The pace level one window reaches, or null. */
-export const windowHit = (limit: Limit, now: number, ladder: readonly Level[]): Hit | null => {
-  const pace = paceOf(limit, now)
-  const level = pace === null ? undefined : highest(pace.value, ladder)
+/** The pace level one window stands at, the margin holding its last level, or null. */
+export const windowHit = (limit: Limit, now: number, ladder: readonly Level[], held: Held, tuning: Tuning): Hit | null => {
+  const pace = paceOf(limit, now, tuning.warmup)
+  const level = pace === null ? undefined : settle(pace.value, ladder, held[limit.kind], marginOf(limit.kind, tuning))
 
   return pace === null || level === undefined
     ? null
@@ -86,9 +100,11 @@ export const paceHit = (
   limits: readonly Limit[],
   now: number,
   ladder: readonly Level[],
+  held: Held,
+  tuning: Tuning,
 ): Hit | null =>
   limits
-    .map(limit => windowHit(limit, now, ladder))
+    .map(limit => windowHit(limit, now, ladder, held, tuning))
     .reduce<Hit | null>(
       (worst, hit) =>
         hit !== null &&

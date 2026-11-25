@@ -1,12 +1,14 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionUsage } from 'claude-code'
 
-import type { Active, Forecasts, Grant, Hit, Reading } from '../types'
+import type { Active, Forecasts, Grant, Held, Hit, Latches, Reading, Samples } from '../types'
+import { DARK, contextRise, contextRule, follow, isSamples, latch, lookbackOf, record, span, usageRate, usageRule } from './burst'
 import { compact, full } from './band'
-import type { Span } from './band'
+import type { BandInput, Span } from './band'
 import { ladders } from './config'
-import type { Ladders } from './config'
+import type { Ladders, Tuning } from './config'
 import { isForecast, runOut, step } from './forecast'
+import { summary } from './summary'
 import {
   atLeast,
   contextHit,
@@ -32,29 +34,35 @@ const grant = atom({ plugin: 'headroom', key: 'grant' } as const, 'pending' as G
 const reading = atom({ plugin: 'headroom', key: 'reading' } as const, null as Reading | null)
 const forecast = atom({ plugin: 'headroom', key: 'forecast' } as const, {} as Forecasts)
 const details = atom({ plugin: 'headroom', key: 'details' } as const, false)
+const samples = atom({ plugin: 'headroom', key: 'samples' } as const, {} as Samples)
+const trail = atom({ plugin: 'headroom', key: 'trail' } as const, [] as number[])
+const latches = atom({ plugin: 'headroom', key: 'latches' } as const, {} as Latches)
+const calls = atom({ plugin: 'headroom', key: 'calls' } as const, 0)
+const held = atom({ plugin: 'headroom', key: 'held' } as const, {} as Held)
+
+const offset = (ms: number): number => new Date(ms).getTimezoneOffset()
 
 const KIND = { '5h': 'five_hour', '7d': 'seven_day' } as const
 
 /** The run-out text for the window a pace hit came from. */
-const outOf = (hit: Hit, limits: readonly Limit[], stored: Forecasts, now: number): string | undefined => {
+const outOf = (hit: Hit, at: Context): string | undefined => {
   if (hit.ladder !== 'pace') {
     return undefined
   }
 
   const kind = KIND[hit.window]
-  const limit = limits.find(one => one.kind === kind)
-  const out = limit === undefined ? '·' : runOut(stored[kind], limit, now)
+  const limit = at.limits.find(one => one.kind === kind)
+  const out = limit === undefined ? '·' : runOut(at.stored[kind], limit, at.now, at.tuning)
 
   return out === '·' ? undefined : out
 }
 
-type Context = { limits: readonly Limit[]; stored: Forecasts; now: number }
+type Context = { limits: readonly Limit[]; stored: Forecasts; now: number; tuning: Tuning }
 
-const loud = (active: Active, at: Context, only?: (hit: Hit) => boolean): string =>
+const loud = (active: Active, at: Context): string =>
   [active.context, active.pace]
     .filter((hit): hit is Hit => hit !== null && atLeast(hit.level.action, 'alert'))
-    .filter(hit => only?.(hit) ?? true)
-    .map(hit => line(hit, outOf(hit, at.limits, at.stored, at.now)))
+    .map(hit => line(hit, outOf(hit, at)))
     .join('\n')
 
 const pct = (value: number): string => `${value}%`.padEnd(5)
@@ -62,7 +70,8 @@ const pct = (value: number): string => `${value}%`.padEnd(5)
 const standing = (name: string, value: number, ladder: Ladders['context']): string =>
   `${name} ${rangeOf(value, ladder)}`
 
-const window = (usage: Limit, now: number, config: Ladders, stored: Forecasts): string => {
+const window = (usage: Limit, band: BandInput): string => {
+  const { now, config, stored } = band
   const name = windowOf(usage.kind)?.label ?? usage.kind
   const reset = usage.resetsAt === undefined ? NaN : Date.parse(usage.resetsAt)
 
@@ -70,36 +79,79 @@ const window = (usage: Limit, now: number, config: Ladders, stored: Forecasts): 
     return `${name} reset, no reading since`
   }
 
-  const pace = paceOf(usage, now)
+  const pace = paceOf(usage, now, config.tuning.warmup)
   const head = `${name.padEnd(9)}${pct(usage.percentUsed)}`
-  const out = `out ${runOut(stored[usage.kind], usage, now)}`
+  const out = `out ${runOut(stored[usage.kind], usage, now, config.tuning)}`
 
   if (pace === null) {
     return `${head}${'pace n/a'.padEnd(11)}${''.padEnd(17)}${out}`
   }
 
-  const level = windowHit(usage, now, config.pace)?.level.name ?? 'ok'
+  const level = windowHit(usage, now, config.pace, band.held, config.tuning)?.level.name ?? 'ok'
   const speed = `pace ${pace.value > 0 ? '+' : ''}${pace.value}%`
 
   return `${head}${speed.padEnd(11)}${standing(level, pace.value, config.pace).padEnd(17)}${out}`
 }
 
-const report = (usage: SessionUsage, now: number, config: Ladders, stored: Forecasts): string => {
+const report = (usage: SessionUsage, band: BandInput): string => {
+  const { config } = band
   const percent = usage.context.percent
   const lines = [
     percent === undefined
       ? 'context n/a'
-      : `${'context'.padEnd(9)}${pct(percent)}${standing(contextHit(percent, config.context)?.level.name ?? 'ok', percent, config.context)}`,
+      : `${'context'.padEnd(9)}${pct(percent)}${standing(contextHit(percent, config.context, band.held, config.tuning)?.level.name ?? 'ok', percent, config.context)}`,
   ]
 
   if (usage.rateLimits.length === 0) {
     lines.push('no rate-limit windows (no subscription)')
   }
 
-  return [...lines, ...usage.rateLimits.map(limit => window(limit, now, config, stored))].join('\n')
+  const footer = summary(band)
+
+  return [...lines, ...usage.rateLimits.map(limit => window(limit, band)), ...(footer === '' ? [] : ['', footer])].join('\n')
 }
 
 const STORE_KEY = 'forecast'
+const SAMPLES_KEY = 'samples'
+
+const bandOf = async ($: EngineInterface, config: Ladders, last: Reading | null): Promise<BandInput> => ({
+  reading: last,
+  stored: await read($, forecast),
+  samples: await read($, samples),
+  trail: await read($, trail),
+  latches: await read($, latches),
+  held: await read($, held),
+  config,
+  now: await $.clock.now(),
+  offset,
+})
+
+const readingOf = (usage: Pick<SessionUsage, 'context' | 'rateLimits'>): Reading => ({
+  context: usage.context.percent,
+  rateLimits: [...usage.rateLimits],
+})
+
+const loadSamples = async ($: EngineInterface): Promise<Samples> => {
+  const value = await $.store.get(SAMPLES_KEY)
+
+  if (value === undefined) {
+    return {}
+  }
+
+  if (!isSamples(value)) {
+    $.ui.log(`headroom: its stored burst samples are unreadable: ${JSON.stringify(value)}`, { to: 'debug' })
+
+    return {}
+  }
+
+  return value
+}
+
+const usageLine = (kind: string, rate: number, tuning: Tuning): string =>
+  `headroom: ${windowOf(kind)?.label ?? kind} burst, ${Math.round(rate * 3_600_000)}% per hour over the last ${span(lookbackOf(kind, tuning) ?? 0)}`
+
+const contextLine = (rise: number, count: number): string =>
+  `headroom: context burst, up ${rise}% in the last ${count} tool call${count === 1 ? '' : 's'}`
 
 const loadForecasts = async ($: EngineInterface): Promise<Forecasts> => {
   const value = await $.store.get(STORE_KEY)
@@ -124,15 +176,15 @@ let timer: { cancel: () => void } | null = null
 const wake = async ($: EngineInterface, config: Ladders) => {
   timer = null
   await update($, armedFor, () => null)
-  $.ui.toast('headroom: the 5h window reset')
 
-  const fresh = report(await $.session.usage(), await $.clock.now(), config, await read($, forecast))
+  const usage = await $.session.usage()
+  const fresh = report(usage, await bandOf($, config, readingOf(usage)))
 
   await $.prompt.submit({ text: `headroom: the 5h window reset. Fresh reading:\n${fresh}` })
 }
 
 const arm = async ($: EngineInterface, config: Ladders, resetsAt: string) => {
-  const wait = Date.parse(resetsAt) + 60_000 - (await $.clock.now())
+  const wait = Date.parse(resetsAt) + config.tuning.wakeDelay - (await $.clock.now())
 
   timer?.cancel()
   await update($, armedFor, () => resetsAt)
@@ -176,12 +228,28 @@ const isGating = ($: EngineInterface, state: Live | null): boolean => {
 const answerOf = (answer: string): Grant | null =>
   answer === 'Continue' ? 'granted' : answer === 'Block' ? 'blocked' : null
 
-const measure = async ($: EngineInterface, config: Ladders, e: Pick<SessionUsage, 'context' | 'rateLimits'>) => {
+const measure = async (
+  $: EngineInterface,
+  config: Ladders,
+  e: Pick<SessionUsage, 'context' | 'rateLimits'>,
+  isToolCall = false,
+) => {
   const now = await $.clock.now()
+  const previous = await read($, held)
   const active: Active = {
-    context: contextHit(e.context.percent, config.context),
-    pace: paceHit(e.rateLimits, now, config.pace),
+    context: contextHit(e.context.percent, config.context, previous, config.tuning),
+    pace: paceHit(e.rateLimits, now, config.pace, previous, config.tuning),
   }
+  const standing: Held = Object.fromEntries([
+    ...(active.context === null ? [] : [['context', active.context.level.name]]),
+    ...e.rateLimits.flatMap(limit => {
+      const hit = windowHit(limit, now, config.pace, previous, config.tuning)
+
+      return hit === null ? [] : [[limit.kind, hit.level.name]]
+    }),
+  ])
+
+  await update($, held, () => standing)
   const state = await current($)
   const before = state.active
 
@@ -202,16 +270,63 @@ const measure = async ($: EngineInterface, config: Ladders, e: Pick<SessionUsage
   const kept = await read($, forecast)
   const stepped: Forecasts = Object.fromEntries(
     e.rateLimits.flatMap(limit => {
-      const moved = step(kept[limit.kind], limit, now)
+      const moved = step(kept[limit.kind], limit, now, config.tuning)
 
       return moved === undefined ? [] : [[limit.kind, moved]]
     }),
   )
   const stored = { ...kept, ...stepped }
-  const at: Context = { limits: e.rateLimits, stored, now }
+  const at: Context = { limits: e.rateLimits, stored, now, tuning: config.tuning }
 
   await update($, forecast, () => stored)
-  await update($, reading, () => ({ context: e.context.percent, rateLimits: [...e.rateLimits] }))
+  await update($, reading, () => readingOf(e))
+
+  const keptSamples = await read($, samples)
+  const recorded: Samples = Object.fromEntries(
+    e.rateLimits.flatMap(limit => {
+      const next = record(keptSamples[limit.kind], limit, now, config.tuning)
+
+      return next === undefined ? [] : [[limit.kind, next]]
+    }),
+  )
+
+  await update($, samples, () => ({ ...keptSamples, ...recorded }))
+
+  const told: string[] = []
+  const lit: Latches = { ...(await read($, latches)) }
+
+  e.rateLimits.forEach(limit => {
+    const rule = usageRule(limit.kind, config.tuning)
+
+    if (rule === undefined) {
+      return
+    }
+
+    const rate = usageRate(recorded[limit.kind], limit, now, config.tuning)
+    const { next, tell } = latch(lit[limit.kind] ?? DARK, rate, now, rule)
+
+    lit[limit.kind] = next
+
+    if (tell && rate !== null) {
+      told.push(usageLine(limit.kind, rate, config.tuning))
+    }
+  })
+
+  if (isToolCall) {
+    const count = await update($, calls, prev => prev + 1)
+    const kept = await update($, trail, prev => follow(prev, e.context.percent, config.tuning))
+    const rise = contextRise(kept)
+    const { next, tell } = latch(lit.context ?? DARK, rise, count, contextRule(config.tuning))
+
+    lit.context = next
+
+    if (tell && rise !== null) {
+      told.push(contextLine(rise, kept.length - 1))
+    }
+  }
+
+  await update($, latches, () => lit)
+
   const moved = Object.entries(stepped).some(
     ([kind, one]) => kept[kind]?.used !== one?.used || kept[kind]?.resetsAt !== one?.resetsAt,
   )
@@ -219,6 +334,9 @@ const measure = async ($: EngineInterface, config: Ladders, e: Pick<SessionUsage
   if (moved) {
     await $.store.set(STORE_KEY, stored).catch((error: unknown) => {
       $.ui.log(`headroom: the forecast could not be stored: ${String(error)}`, { to: 'debug' })
+    })
+    await $.store.set(SAMPLES_KEY, await read($, samples)).catch((error: unknown) => {
+      $.ui.log(`headroom: the burst samples could not be stored: ${String(error)}`, { to: 'debug' })
     })
   }
 
@@ -231,14 +349,6 @@ const measure = async ($: EngineInterface, config: Ladders, e: Pick<SessionUsage
   }
 
   if (!sameLevels(before, active)) {
-    const rose = loud(active, at, hit =>
-      stageOf(hit, config[hit.ladder]) > stageOf(before[hit.ladder], config[hit.ladder]),
-    )
-
-    if (rose !== '') {
-      $.ui.toast(rose)
-    }
-
     if (atLeast(effective(active), 'alert')) {
       const text = loud(active, at)
       await update($, pending, () => text)
@@ -246,6 +356,22 @@ const measure = async ($: EngineInterface, config: Ladders, e: Pick<SessionUsage
       await update($, pending, () => null)
     }
   }
+
+  if (told.length > 0) {
+    await update($, pending, text => [...(text === null ? [] : [text]), ...told].join('\n'))
+  }
+}
+
+const take = async ($: EngineInterface): Promise<string | null> => {
+  let taken: string | null = null
+
+  await update($, pending, text => {
+    taken = text
+
+    return null
+  })
+
+  return taken
 }
 
 export const register: Register = (on, options) => {
@@ -260,6 +386,14 @@ export const register: Register = (on, options) => {
     })
 
     await update($, forecast, () => stored)
+
+    const kept = await loadSamples($).catch((error: unknown) => {
+      $.ui.log(`headroom: its stored burst samples could not be read: ${String(error)}`, { to: 'debug' })
+
+      return {}
+    })
+
+    await update($, samples, () => kept)
 
     const isFull = await $.store.get('details').catch((error: unknown) => {
       $.ui.log(`headroom: the details toggle could not be read: ${String(error)}`, { to: 'debug' })
@@ -320,7 +454,7 @@ export const register: Register = (on, options) => {
 
     const state = await current($)
     const last = await read($, reading)
-    const at: Context = { limits: last?.rateLimits ?? [], stored: await read($, forecast), now: await $.clock.now() }
+    const at: Context = { limits: last?.rateLimits ?? [], stored: await read($, forecast), now: await $.clock.now(), tuning: config.tuning }
 
     for (;;) {
       const action = actionOf(state)
@@ -388,13 +522,11 @@ export const register: Register = (on, options) => {
   })
 
   on('prompt.submit', async ($, e, next) => {
-    const text = await read($, pending)
+    const text = await take($)
 
     if (text === null) {
       return next(e)
     }
-
-    await update($, pending, () => null)
 
     return next({ ...e, context: [...(e.context ?? []), text] })
   })
@@ -404,17 +536,15 @@ export const register: Register = (on, options) => {
 
     await $.session
       .usage()
-      .then(usage => measure($, config, usage))
+      .then(usage => measure($, config, usage, true))
       .catch((error: unknown) => {
         $.ui.log(`headroom: the reading after a tool could not be taken: ${String(error)}`, { to: 'debug' })
       })
-    const text = await read($, pending)
+    const text = await take($)
 
     if (text === null) {
       return ran
     }
-
-    await update($, pending, () => null)
 
     return { ...ran, additionalContext: [...(ran.additionalContext ?? []), text] }
   })
@@ -429,8 +559,9 @@ export const register: Register = (on, options) => {
 
       return undefined
     })
-    const band = { reading: await read($, reading), stored: await read($, forecast), config, now: await $.clock.now() }
+    const band = await bandOf($, config, await read($, reading))
     const isFull = await read($, details)
+    const footer = isFull ? summary(band) : ''
     const rows = isFull ? full(band) : [compact(band)]
     const toggle = async () => {
       const shown = await update($, details, open => !open)
@@ -462,6 +593,11 @@ export const register: Register = (on, options) => {
             row(spans, i)
           ),
         )}
+        {footer === '' ? null : (
+          <Text key="band-summary" wrap="wrap">
+            {footer}
+          </Text>
+        )}
       </Box>
     )
 
@@ -469,7 +605,7 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'headroom' }, async $ => ({
-    text: report(await $.session.usage(), await $.clock.now(), config, await read($, forecast)),
+    text: await $.session.usage().then(async usage => report(usage, await bandOf($, config, readingOf(usage)))),
     isTextDisplayOnly: true,
   }))
 }
