@@ -2,7 +2,6 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { ladders } from './config'
 import {
-  band,
   contextHit,
   effective,
   left,
@@ -166,10 +165,4 @@ describe('windowHit', () => {
       expect(hit === null ? null : { name: hit.level.name, value: hit.value, window: hit.ladder === 'pace' ? hit.window : null }).toEqual(expected)
     })
   }
-})
-
-test('band lists each active level', () => {
-  expect(band({ context: hot, pace: paceHot })).toBe(
-    'context hot 67% · 5h pace hot +54%',
-  )
 })

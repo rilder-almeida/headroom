@@ -2,12 +2,13 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionUsage } from 'claude-code'
 
 import type { Active, Forecasts, Grant, Hit, Reading } from '../types'
+import { compact, full } from './band'
+import type { Span } from './band'
 import { ladders } from './config'
 import type { Ladders } from './config'
 import { isForecast, runOut, step } from './forecast'
 import {
   atLeast,
-  band,
   contextHit,
   effective,
   left,
@@ -30,6 +31,7 @@ const armedFor = atom({ plugin: 'headroom', key: 'armedFor' } as const, null as 
 const grant = atom({ plugin: 'headroom', key: 'grant' } as const, 'pending' as Grant, { shape: 'grant-2' })
 const reading = atom({ plugin: 'headroom', key: 'reading' } as const, null as Reading | null)
 const forecast = atom({ plugin: 'headroom', key: 'forecast' } as const, {} as Forecasts)
+const details = atom({ plugin: 'headroom', key: 'details' } as const, false)
 
 const KIND = { '5h': 'five_hour', '7d': 'seven_day' } as const
 
@@ -180,6 +182,14 @@ export const register: Register = (on, options) => {
     })
 
     await update($, forecast, () => stored)
+
+    const isFull = await $.store.get('details').catch((error: unknown) => {
+      $.ui.log(`headroom: the details toggle could not be read: ${String(error)}`, { to: 'debug' })
+
+      return false
+    })
+
+    await update($, details, () => isFull === true)
 
     const armed = await read($, armedFor)
 
@@ -386,19 +396,52 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const active = await read($, levels)
-
-    if (e.props.hasSurvey || !atLeast(effective(active), 'alert')) {
+    if (e.props.hasSurvey) {
       return next(e)
     }
 
-    const { Box, Text } = $.ui.resolve(e)
+    const below = await next(e).catch((error: unknown) => {
+      $.ui.log(`headroom: nothing drew beneath the band: ${String(error)}`, { to: 'debug' })
 
-    return (
-      <Box>
-        <Text color="warning">{band(active)}</Text>
+      return undefined
+    })
+    const band = { reading: await read($, reading), stored: await read($, forecast), config, now: await $.clock.now() }
+    const isFull = await read($, details)
+    const rows = isFull ? full(band) : [compact(band)]
+    const toggle = async () => {
+      const shown = await update($, details, open => !open)
+
+      await $.store.set('details', shown).catch((error: unknown) => {
+        $.ui.log(`headroom: the details toggle could not be stored: ${String(error)}`, { to: 'debug' })
+      })
+    }
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const row = (spans: readonly Span[], i: number) => (
+      <Text key={`band-${i}`} wrap="truncate-end">
+        {spans.map((span, j) => (
+          <Text key={`span-${j}`} color={span.color}>
+            {span.text}
+          </Text>
+        ))}
+      </Text>
+    )
+    const mine = (
+      <Box flexDirection="column">
+        {rows.map((spans, i) =>
+          i === 0 ? (
+            <Box key="band-head" flexDirection="row">
+              {row(spans, i)}
+              <Box flexGrow={1} />
+              <Button key="details" plain label="⋯" onPress={toggle} />
+            </Box>
+          ) : (
+            row(spans, i)
+          ),
+        )}
       </Box>
     )
+
+    return below === undefined ? mine : <Box flexDirection="column">{mine}{below}</Box>
   })
 
   on('command.run', { command: 'headroom' }, async $ => ({

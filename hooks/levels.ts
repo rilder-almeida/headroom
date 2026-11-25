@@ -150,10 +150,3 @@ export const line = (hit: Hit, out?: string): string => {
 
   return `headroom: ${label(hit)}${until}: ${ADVICE[hit.ladder][hit.level.name] ?? ''}`
 }
-
-/** The band text: every active level, context first. */
-export const band = (active: Active): string =>
-  [active.context, active.pace]
-    .filter((hit): hit is Hit => hit !== null)
-    .map(label)
-    .join(' · ')

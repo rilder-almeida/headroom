@@ -11,8 +11,8 @@ const usage = (on: On, percent: number | undefined, rateLimits: SessionRateLimit
     value: { startedAt: NOW, context: { window: 1_000_000, percent }, rateLimits },
   }))
 
-const start = async (on: On, $: Engine) => {
-  mock.store(on)
+const start = async (on: On, $: Engine, stored?: Record<string, unknown>) => {
+  mock.store(on, stored)
   on('command.register', () => ({ value: { command: 'headroom' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
@@ -71,7 +71,7 @@ const BAND = {
 const submit = ($: Engine, text: string) =>
   $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } })
 
-const harness = async ($: Engine, on: On) => {
+const harness = async ($: Engine, on: On, stored?: Record<string, unknown>) => {
   const toasts: string[] = []
   const contexts: (readonly string[] | undefined)[] = []
 
@@ -93,7 +93,7 @@ const harness = async ($: Engine, on: On) => {
 
     return <Text>engine</Text>
   })
-  await start(on, $)
+  await start(on, $, stored)
 
   const measure = (percent: number | undefined, rateLimits: SessionRateLimit[] = []) =>
     $.session.measure({ context: { window: 1_000_000, percent }, rateLimits, changed: ['context'] })
@@ -220,20 +220,52 @@ test('no reading, no level', async ($, on) => {
   expect(toasts).toEqual([])
 })
 
-test('the band shows while alert or higher', async ($, on) => {
+test('the band always shows, above the rows beneath it', async ($, on) => {
   const { measure } = await harness($, on)
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    await measure(67)
-    const shown = await $.ui.mount({ ...BAND, surface })
-    expect((await shown.find({ type: 'Text', text: /context/ }))?.text).toBe('context hot 67%')
-    await shown.unmount()
-
     await measure(10)
-    const hidden = await $.ui.mount({ ...BAND, surface })
-    expect(await hidden.find({ type: 'Text', text: /context/ })).toBeUndefined()
-    await hidden.unmount()
+    const band = await $.ui.mount({ ...BAND, surface })
+
+    expect(await band.find({ type: 'Text', text: '●○○○' })).toBeDefined()
+    expect(await band.find({ type: 'Text', text: 'engine' })).toBeDefined()
+    await band.unmount()
   }
+})
+
+test('the details button toggles the full view', async ($, on) => {
+  const { measure } = await harness($, on)
+
+  await measure(10)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'details' })
+
+  expect(await band.find({ type: 'Text', text: 'level  ok · 35% left' })).toBeDefined()
+
+  await band.press({ key: 'details' })
+
+  expect(await band.find({ type: 'Text', text: 'level  ok · 35% left' })).toBeUndefined()
+  await band.unmount()
+})
+
+test('a stored toggle opens the full view', async ($, on) => {
+  const { measure } = await harness($, on, { details: true })
+
+  await measure(10)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+
+  expect(await band.find({ type: 'Text', text: 'now    10%' })).toBeDefined()
+  await band.unmount()
+})
+
+test('the band yields to a survey', async ($, on) => {
+  const { measure } = await harness($, on)
+
+  await measure(50)
+  const band = await $.ui.mount({ ...BAND, surface: 'terminal', props: { ...BAND.props, hasSurvey: true } })
+
+  expect(await band.find({ type: 'Text', text: /●/ })).toBeUndefined()
+  await band.unmount()
 })
 
 const LIMIT_80 = 'headroom: context full 80%: stop now and start a fresh session'
