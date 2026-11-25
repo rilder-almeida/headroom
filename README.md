@@ -59,8 +59,8 @@ Select `⋯` to open the full view. headroom keeps your choice across sessions.
 ```
 context                   │            5h               7d
 now    52%                │ now        61%              44%
-level  warm · 13% left    │ pace       +12%             +39%
-                          │ level      ok · 8% left     warm · 11% left
+level  warm <65%          │ pace       +12%             +39%
+                          │ level      ok <+20%         warm <+50%
                           │ out        1h44             2d 19h
 ```
 
@@ -70,7 +70,7 @@ Each row answers one question:
 |---|---|
 | `now` | How much is used? |
 | `pace` | How fast is it spent, compared with an even spread until the reset? |
-| `level` | Which level is it at, and how many points are left until the next level? |
+| `level` | Which level is it at, and where does the next level start? |
 | `out` | When does the window run out at the current speed? |
 
 ## What headroom watches
@@ -191,9 +191,9 @@ When a window resets, the forecast starts again from the average of the new wind
 `/headroom` prints the same reading as text:
 
 ```
-context  52%  warm · 13% left
-5h       61%  pace +12%  ok · 8% left     out 1h44
-7d       44%  pace +39%  warm · 11% left  out 2d 19h
+context  52%  warm <65%
+5h       61%  pace +12%  ok <+20%         out 1h44
+7d       44%  pace +39%  warm <+50%       out 2d 19h
 ```
 
 ## Reset timer

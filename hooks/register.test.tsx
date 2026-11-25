@@ -37,9 +37,9 @@ test('the command reports context, windows and pace', async ($, on) => {
   const { text } = await run($)
 
   expect(text?.split('\n')).toEqual([
-    'context  67%  hot · 8% left',
-    '5h       30%  pace -40%  ok · 60% left    out ·',
-    '7d       40%  pace -20%  ok · 40% left    out ·',
+    'context  67%  hot <75%',
+    '5h       30%  pace -40%  ok <+20%         out ·',
+    '7d       40%  pace -20%  ok <+20%         out ·',
   ])
 })
 
@@ -50,7 +50,7 @@ test('the command says why pace is missing', async ($, on) => {
 
   const { text } = await run($)
 
-  expect(text).toContain('context  10%  ok · 35% left')
+  expect(text).toContain('context  10%  ok <45%')
   expect(text).toContain('no rate-limit windows (no subscription)')
 })
 
@@ -240,11 +240,11 @@ test('the details button toggles the full view', async ($, on) => {
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   await band.press({ key: 'details' })
 
-  expect(await band.find({ type: 'Text', text: 'level  ok · 35% left' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'level  ok <45%' })).toBeDefined()
 
   await band.press({ key: 'details' })
 
-  expect(await band.find({ type: 'Text', text: 'level  ok · 35% left' })).toBeUndefined()
+  expect(await band.find({ type: 'Text', text: 'level  ok <45%' })).toBeUndefined()
   await band.unmount()
 })
 
@@ -485,7 +485,7 @@ test('the timer arms past wake_at and fires at reset', async ($, on) => {
 
   expect(prompts).toHaveLength(1)
   expect(prompts[0]).toContain('5h window reset')
-  expect(prompts[0]).toContain('context  20%  ok · 25% left')
+  expect(prompts[0]).toContain('context  20%  ok <45%')
   expect(toasts).toContain('headroom: the 5h window reset')
 })
 

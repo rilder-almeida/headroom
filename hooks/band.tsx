@@ -3,7 +3,7 @@ import type { Color } from 'claude-code'
 import type { Forecasts, LevelName, Reading } from '../types'
 import type { Ladders } from './config'
 import { runOut } from './forecast'
-import { contextHit, left, paceOf, stageOf, windowHit, windowOf } from './levels'
+import { contextHit, paceOf, rangeOf, stageOf, windowHit, windowOf } from './levels'
 import type { Limit } from './levels'
 
 /** What the band draws from: the last reading, the stored forecasts, the ladders and the time. */
@@ -41,14 +41,13 @@ const windows = (band: BandInput): Column[] =>
 
     const pace = paceOf(limit, band.now)
     const name = windowHit(limit, band.now, band.config.pace)?.level.name ?? 'ok'
-    const room = pace === null ? null : left(pace.value, band.config.pace)
 
     return [
       {
         label: window.label,
         used: `${limit.percentUsed}%`,
         pace: pace === null ? 'n/a' : `${pace.value > 0 ? '+' : ''}${pace.value}%`,
-        level: pace === null ? '·' : room === null ? name : `${name} · ${room}% left`,
+        level: pace === null ? '·' : `${name} ${rangeOf(pace.value, band.config.pace, true)}`,
         color: COLORS[name],
         out: runOut(band.stored[limit.kind], limit, band.now),
       },
@@ -59,12 +58,11 @@ const context = (band: BandInput) => {
   const percent = band.reading?.context
   const hit = percent === undefined ? null : contextHit(percent, band.config.context)
   const name = hit?.level.name ?? 'ok'
-  const room = percent === undefined ? null : left(percent, band.config.context)
 
   return {
     percent,
     stage: percent === undefined ? -1 : stageOf(hit, band.config.context),
-    level: room === null ? name : `${name} · ${room}% left`,
+    level: percent === undefined ? name : `${name} ${rangeOf(percent, band.config.context, false)}`,
     color: COLORS[name],
   }
 }

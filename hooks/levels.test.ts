@@ -4,10 +4,10 @@ import { ladders } from './config'
 import {
   contextHit,
   effective,
-  left,
   line,
   paceHit,
   paceOf,
+  rangeOf,
   sameGate,
   sameLevels,
   stageOf,
@@ -125,17 +125,17 @@ describe('line', () => {
   }
 })
 
-describe('left', () => {
+describe('rangeOf', () => {
   for (const [name, value, ladder, expected] of [
-    ['context warm', 52, 'context', 13],
-    ['context ok', 30, 'context', 15],
-    ['context full', 80, 'context', null],
-    ['pace below zero', -40, 'pace', 60],
-    ['pace warm', 39, 'pace', 11],
-    ['pace over', 120, 'pace', null],
+    ['context warm', 52, 'context', '<65%'],
+    ['context ok', 30, 'context', '<45%'],
+    ['context full', 80, 'context', '>75%'],
+    ['pace below zero', -40, 'pace', '<+20%'],
+    ['pace warm', 39, 'pace', '<+50%'],
+    ['pace over', 120, 'pace', '>+100%'],
   ] as const) {
     test(name, () => {
-      expect(left(value, D[ladder])).toBe(expected)
+      expect(rangeOf(value, D[ladder], ladder === 'pace')).toBe(expected)
     })
   }
 })

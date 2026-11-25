@@ -66,12 +66,12 @@ describe('full', () => {
       [
         'context                   │            5h               7d',
         'now    52%                │ now        61%              44%',
-        'level  warm · 13% left    │ pace       +12%             +39%',
-        '                          │ level      ok · 8% left     warm · 11% left',
+        'level  warm <65%          │ pace       +12%             +39%',
+        '                          │ level      ok <+20%         warm <+50%',
         '                          │ out        1h44             2d 19h',
       ],
     ],
-    ['no subscription', SOLO, ['context', 'now    52%', 'level  warm · 13% left']],
+    ['no subscription', SOLO, ['context', 'now    52%', 'level  warm <65%']],
   ] as const) {
     test(name, () => {
       expect(full(band).map(plain)).toEqual([...expected])

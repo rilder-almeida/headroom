@@ -104,11 +104,12 @@ export const paceHit = (
 export const stageOf = (hit: Hit | null, ladder: readonly Level[]): number =>
   hit === null ? 0 : ladder.findIndex(level => level.name === hit.level.name) + 1
 
-/** Points from a value to the next level's threshold, or null past the last level. */
-export const left = (value: number, ladder: readonly Level[]): number | null => {
+/** The bound that ends a value's level: `<65%` below the next threshold, `>75%` past the last one. */
+export const rangeOf = (value: number, ladder: readonly Level[], isSigned: boolean): string => {
+  const mark = (at: number) => `${isSigned && at > 0 ? '+' : ''}${at}%`
   const next = ladder.find(level => level.at > value)
 
-  return next === undefined ? null : next.at - value
+  return next === undefined ? `>${mark(ladder.at(-1)?.at ?? 0)}` : `<${mark(next.at)}`
 }
 
 const rank = (action: Action): number => SEVERITY.indexOf(action)
