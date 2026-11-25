@@ -1,6 +1,6 @@
 {
   "name": "headroom",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Alerts, asks or blocks as the context window fills and the rate-limit pace runs hot.",
   "author": {
     "name": "Rilder Almeida"
@@ -8,15 +8,15 @@
   "license": "MIT",
   "types": "./types/index.d.ts",
   "userConfig": {
-    "context_opportunity_at": {
+    "context_warm_at": {
       "type": "number",
-      "title": "Context opportunity at (%)",
+      "title": "Context warm at (%)",
       "default": 45,
-      "description": "Context window fill, in percent, where the opportunity level starts."
+      "description": "Context window fill, in percent, where the warm level starts."
     },
-    "context_opportunity_action": {
+    "context_warm_action": {
       "type": "string",
-      "title": "Context opportunity action",
+      "title": "Context warm action",
       "default": "alert",
       "options": [
         "none",
@@ -24,17 +24,17 @@
         "ask",
         "block"
       ],
-      "description": "What headroom does at the context opportunity level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (deny tool calls)."
+      "description": "What headroom does at the context warm level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (refuse tool calls)."
     },
-    "context_critical_at": {
+    "context_hot_at": {
       "type": "number",
-      "title": "Context critical at (%)",
+      "title": "Context hot at (%)",
       "default": 65,
-      "description": "Context window fill, in percent, where the critical level starts."
+      "description": "Context window fill, in percent, where the hot level starts."
     },
-    "context_critical_action": {
+    "context_hot_action": {
       "type": "string",
-      "title": "Context critical action",
+      "title": "Context hot action",
       "default": "alert",
       "options": [
         "none",
@@ -42,17 +42,17 @@
         "ask",
         "block"
       ],
-      "description": "What headroom does at the context critical level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (deny tool calls)."
+      "description": "What headroom does at the context hot level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (refuse tool calls)."
     },
-    "context_limit_at": {
+    "context_full_at": {
       "type": "number",
-      "title": "Context limit at (%)",
+      "title": "Context full at (%)",
       "default": 75,
-      "description": "Context window fill, in percent, where the limit level starts."
+      "description": "Context window fill, in percent, where the full level starts."
     },
-    "context_limit_action": {
+    "context_full_action": {
       "type": "string",
-      "title": "Context limit action",
+      "title": "Context full action",
       "default": "ask",
       "options": [
         "none",
@@ -60,17 +60,17 @@
         "ask",
         "block"
       ],
-      "description": "What headroom does at the context limit level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (deny tool calls)."
+      "description": "What headroom does at the context full level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (refuse tool calls)."
     },
-    "pace_tight_at": {
+    "pace_warm_at": {
       "type": "number",
-      "title": "Pace tight at (%)",
+      "title": "Pace warm at (%)",
       "default": 20,
-      "description": "Spend speed above an even pace to the reset, in percent, where the tight level starts."
+      "description": "Spend speed above an even pace to the reset, in percent, where the warm level starts."
     },
-    "pace_tight_action": {
+    "pace_warm_action": {
       "type": "string",
-      "title": "Pace tight action",
+      "title": "Pace warm action",
       "default": "alert",
       "options": [
         "none",
@@ -78,17 +78,17 @@
         "ask",
         "block"
       ],
-      "description": "What headroom does at the pace tight level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (deny tool calls)."
+      "description": "What headroom does at the pace warm level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (refuse tool calls)."
     },
-    "pace_short_at": {
+    "pace_hot_at": {
       "type": "number",
-      "title": "Pace short at (%)",
+      "title": "Pace hot at (%)",
       "default": 50,
-      "description": "Spend speed above an even pace to the reset, in percent, where the short level starts."
+      "description": "Spend speed above an even pace to the reset, in percent, where the hot level starts."
     },
-    "pace_short_action": {
+    "pace_hot_action": {
       "type": "string",
-      "title": "Pace short action",
+      "title": "Pace hot action",
       "default": "ask",
       "options": [
         "none",
@@ -96,17 +96,17 @@
         "ask",
         "block"
       ],
-      "description": "What headroom does at the pace short level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (deny tool calls)."
+      "description": "What headroom does at the pace hot level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (refuse tool calls)."
     },
-    "pace_overrun_at": {
+    "pace_over_at": {
       "type": "number",
-      "title": "Pace overrun at (%)",
+      "title": "Pace over at (%)",
       "default": 100,
-      "description": "Spend speed above an even pace to the reset, in percent, where the overrun level starts."
+      "description": "Spend speed above an even pace to the reset, in percent, where the over level starts."
     },
-    "pace_overrun_action": {
+    "pace_over_action": {
       "type": "string",
-      "title": "Pace overrun action",
+      "title": "Pace over action",
       "default": "ask",
       "options": [
         "none",
@@ -114,7 +114,7 @@
         "ask",
         "block"
       ],
-      "description": "What headroom does at the pace overrun level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (deny tool calls)."
+      "description": "What headroom does at the pace over level: none, alert (toast, band and a note to Claude), ask (confirm once before the next tool call) or block (refuse tool calls)."
     },
     "wake_at": {
       "type": "number",

@@ -11,14 +11,14 @@ const ACTIONS: readonly Action[] = ['none', 'alert', 'ask', 'block']
 
 const DEFAULTS: { context: readonly Level[]; pace: readonly Level[] } = {
   context: [
-    { name: 'opportunity', at: 45, action: 'alert' },
-    { name: 'critical', at: 65, action: 'alert' },
-    { name: 'limit', at: 75, action: 'ask' },
+    { name: 'warm', at: 45, action: 'alert' },
+    { name: 'hot', at: 65, action: 'alert' },
+    { name: 'full', at: 75, action: 'ask' },
   ],
   pace: [
-    { name: 'tight', at: 20, action: 'alert' },
-    { name: 'short', at: 50, action: 'ask' },
-    { name: 'overrun', at: 100, action: 'ask' },
+    { name: 'warm', at: 20, action: 'alert' },
+    { name: 'hot', at: 50, action: 'ask' },
+    { name: 'over', at: 100, action: 'ask' },
   ],
 }
 

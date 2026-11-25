@@ -20,10 +20,10 @@ const resetIn = (ms: number) => new Date(NOW + ms).toISOString()
 describe('contextHit', () => {
   for (const [percent, expected] of [
     [44, null],
-    [45, 'opportunity'],
-    [64, 'opportunity'],
-    [65, 'critical'],
-    [80, 'limit'],
+    [45, 'warm'],
+    [64, 'warm'],
+    [65, 'hot'],
+    [80, 'full'],
     [undefined, null],
   ] as const) {
     test(`${percent} gives ${expected}`, () => {
@@ -65,16 +65,16 @@ test('paceHit is null with no windows', () => {
   expect(paceHit([], NOW, D.pace)).toBeNull()
 })
 
-const limit = { ladder: 'context', level: D.context[2]!, value: 77 } as const
-const critical = { ladder: 'context', level: D.context[1]!, value: 67 } as const
-const tight = { ladder: 'pace', level: D.pace[0]!, value: 25, window: '5h' } as const
-const short = { ladder: 'pace', level: D.pace[1]!, value: 54, window: '5h' } as const
+const full = { ladder: 'context', level: D.context[2]!, value: 77 } as const
+const hot = { ladder: 'context', level: D.context[1]!, value: 67 } as const
+const warm = { ladder: 'pace', level: D.pace[0]!, value: 25, window: '5h' } as const
+const paceHot = { ladder: 'pace', level: D.pace[1]!, value: 54, window: '5h' } as const
 
 describe('effective', () => {
   for (const [name, active, expected] of [
     ['nothing active', { context: null, pace: null }, 'none'],
-    ['the most severe wins', { context: limit, pace: tight }, 'ask'],
-    ['one ladder alone', { context: null, pace: tight }, 'alert'],
+    ['the most severe wins', { context: full, pace: warm }, 'ask'],
+    ['one ladder alone', { context: null, pace: warm }, 'alert'],
   ] as const) {
     test(name, () => {
       expect(effective(active)).toBe(expected)
@@ -84,9 +84,9 @@ describe('effective', () => {
 
 describe('sameLevels', () => {
   for (const [name, a, b, expected] of [
-    ['same names, other values', { context: critical, pace: null }, { context: { ...critical, value: 70 }, pace: null }, true],
-    ['a level appears', { context: null, pace: null }, { context: critical, pace: null }, false],
-    ['a level changes', { context: critical, pace: null }, { context: limit, pace: null }, false],
+    ['same names, other values', { context: hot, pace: null }, { context: { ...hot, value: 70 }, pace: null }, true],
+    ['a level appears', { context: null, pace: null }, { context: hot, pace: null }, false],
+    ['a level changes', { context: hot, pace: null }, { context: full, pace: null }, false],
   ] as const) {
     test(name, () => {
       expect(sameLevels(a, b)).toBe(expected)
@@ -96,9 +96,9 @@ describe('sameLevels', () => {
 
 describe('sameGate', () => {
   for (const [name, a, b, expected] of [
-    ['an alert level appears', { context: limit, pace: null }, { context: limit, pace: tight }, true],
-    ['an ask level appears', { context: limit, pace: null }, { context: limit, pace: short }, false],
-    ['an ask level leaves', { context: limit, pace: null }, { context: critical, pace: null }, false],
+    ['an alert level appears', { context: full, pace: null }, { context: full, pace: warm }, true],
+    ['an ask level appears', { context: full, pace: null }, { context: full, pace: paceHot }, false],
+    ['an ask level leaves', { context: full, pace: null }, { context: hot, pace: null }, false],
   ] as const) {
     test(name, () => {
       expect(sameGate(a, b)).toBe(expected)
@@ -108,8 +108,8 @@ describe('sameGate', () => {
 
 describe('line', () => {
   for (const [hit, expected] of [
-    [limit, 'headroom: context limit 77%: stop now and start a fresh session'],
-    [short, 'headroom: pace short +54% (5h): show the pace and ask before starting long work'],
+    [full, 'headroom: context full 77%: stop now and start a fresh session'],
+    [paceHot, 'headroom: pace hot +54% (5h): show the pace and ask before starting long work'],
   ] as const) {
     test(expected, () => {
       expect(line(hit)).toBe(expected)
@@ -118,7 +118,7 @@ describe('line', () => {
 })
 
 test('band lists each active level', () => {
-  expect(band({ context: critical, pace: short })).toBe(
-    'context critical 67% · pace short +54% (5h)',
+  expect(band({ context: hot, pace: paceHot })).toBe(
+    'context hot 67% · pace hot +54% (5h)',
   )
 })

@@ -2,7 +2,7 @@
 export type Action = 'none' | 'alert' | 'ask' | 'block'
 
 /** The name of a level on either ladder. */
-export type LevelName = 'opportunity' | 'critical' | 'limit' | 'tight' | 'short' | 'overrun'
+export type LevelName = 'warm' | 'hot' | 'full' | 'over'
 
 /** One rung of a ladder: the threshold where it starts and its action. */
 export type Level = { name: LevelName; at: number; action: Action }
@@ -15,8 +15,8 @@ export type Hit =
 /** The current level of each ladder, null when none is reached. */
 export type Active = { context: Hit | null; pace: Hit | null }
 
-/** Whether the person answered the current ask: not yet, continue, or stop. */
-export type Grant = 'pending' | 'granted' | 'refused'
+/** Whether the person answered the current ask: not yet, continue, or block. */
+export type Grant = 'pending' | 'granted' | 'blocked'
 
 declare module 'claude-code' {
   interface PluginState {

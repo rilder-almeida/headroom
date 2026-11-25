@@ -22,7 +22,7 @@ const NOTHING: Active = { context: null, pace: null }
 const levels = atom({ plugin: 'headroom', key: 'levels' } as const, NOTHING, { shape: 'levels-1' })
 const pending = atom({ plugin: 'headroom', key: 'pending' } as const, null)
 const armedFor = atom({ plugin: 'headroom', key: 'armedFor' } as const, null as string | null)
-const grant = atom({ plugin: 'headroom', key: 'grant' } as const, 'pending' as Grant, { shape: 'grant-1' })
+const grant = atom({ plugin: 'headroom', key: 'grant' } as const, 'pending' as Grant, { shape: 'grant-2' })
 
 const loud = (active: Active): string =>
   [active.context, active.pace]
@@ -103,7 +103,7 @@ const isGating = ($: EngineInterface, state: typeof live): boolean => {
 }
 
 const answerOf = (answer: string): Grant | null =>
-  answer === 'Continue' ? 'granted' : answer === 'Stop' ? 'refused' : null
+  answer === 'Continue' ? 'granted' : answer === 'Stop' ? 'blocked' : null
 
 export const register: Register = (on, options) => {
   const config = ladders(options)

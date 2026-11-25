@@ -35,7 +35,7 @@ test('the command reports context, windows and pace', async ($, on) => {
 
   const { text } = await run($)
 
-  expect(text).toContain('context 67% (critical)')
+  expect(text).toContain('context 67% (hot)')
   expect(text).toContain('5h 30% used, pace -40%')
   expect(text).toContain('7d 40% used, pace -20%')
 })
@@ -98,7 +98,7 @@ const harness = async ($: Engine, on: On) => {
   return { toasts, contexts, measure }
 }
 
-const OPPORTUNITY_50 = 'headroom: context opportunity 50%: consider a fresh session at the next natural stop point'
+const WARM_50 = 'headroom: context warm 50%: consider a fresh session at the next natural stop point'
 
 test('a rise past alert toasts once and queues the line', async ($, on) => {
   const { toasts, measure } = await harness($, on)
@@ -106,7 +106,7 @@ test('a rise past alert toasts once and queues the line', async ($, on) => {
   await measure(50)
   await measure(52)
 
-  expect(toasts).toEqual([OPPORTUNITY_50])
+  expect(toasts).toEqual([WARM_50])
 })
 
 test('the line reaches the model once', async ($, on) => {
@@ -116,7 +116,7 @@ test('the line reaches the model once', async ($, on) => {
   await submit($, 'hi')
   await submit($, 'again')
 
-  expect(contexts).toEqual([[OPPORTUNITY_50], undefined])
+  expect(contexts).toEqual([[WARM_50], undefined])
 })
 
 test('the line reaches the model mid-turn', async ($, on) => {
@@ -131,7 +131,7 @@ test('the line reaches the model mid-turn', async ($, on) => {
   })
   await submit($, 'hi')
 
-  expect(after.additionalContext).toEqual([OPPORTUNITY_50])
+  expect(after.additionalContext).toEqual([WARM_50])
   expect(contexts).toEqual([undefined])
 })
 
@@ -143,17 +143,17 @@ test('a drop below alert toasts back within headroom', async ($, on) => {
   await measure(10)
   await submit($, 'again')
 
-  expect(toasts).toEqual([OPPORTUNITY_50, 'back within headroom'])
-  expect(contexts).toEqual([[OPPORTUNITY_50], undefined])
+  expect(toasts).toEqual([WARM_50, 'back within headroom'])
+  expect(contexts).toEqual([[WARM_50], undefined])
 })
 
-test('a jump to limit is one transition', async ($, on) => {
+test('a jump to full is one transition', async ($, on) => {
   const { toasts, measure } = await harness($, on)
 
   await measure(10)
   await measure(80)
 
-  expect(toasts).toEqual(['headroom: context limit 80%: stop now and start a fresh session'])
+  expect(toasts).toEqual(['headroom: context full 80%: stop now and start a fresh session'])
 })
 
 test('no reading, no level', async ($, on) => {
@@ -170,7 +170,7 @@ test('the band shows while alert or higher', async ($, on) => {
   for (const surface of ['terminal', 'desktop'] as const) {
     await measure(67)
     const shown = await $.ui.mount({ ...BAND, surface })
-    expect((await shown.find({ type: 'Text', text: /context/ }))?.text).toBe('context critical 67%')
+    expect((await shown.find({ type: 'Text', text: /context/ }))?.text).toBe('context hot 67%')
     await shown.unmount()
 
     await measure(10)
@@ -180,7 +180,7 @@ test('the band shows while alert or higher', async ($, on) => {
   }
 })
 
-const LIMIT_80 = 'headroom: context limit 80%: stop now and start a fresh session'
+const LIMIT_80 = 'headroom: context full 80%: stop now and start a fresh session'
 
 const gate = async (
   $: Engine,
@@ -266,7 +266,7 @@ test('a rise to another ask level asks again', async ($, on) => {
   expect(asked).toHaveLength(2)
 })
 
-test('block denies every call', { options: { context_limit_action: 'block' } }, async ($, on) => {
+test('block denies every call', { options: { context_full_action: 'block' } }, async ($, on) => {
   const { asked, ran, measure, call } = await gate($, on)
 
   await measure(80)
@@ -277,7 +277,7 @@ test('block denies every call', { options: { context_limit_action: 'block' } }, 
   expect(ran).toEqual([])
 })
 
-test('AskUserQuestion is never gated', { options: { context_limit_action: 'block' } }, async ($, on) => {
+test('AskUserQuestion is never gated', { options: { context_full_action: 'block' } }, async ($, on) => {
   const { asked, measure } = await gate($, on)
 
   await measure(80)
@@ -290,7 +290,7 @@ test('AskUserQuestion is never gated', { options: { context_limit_action: 'block
   expect(asked).toEqual(['Go on?'])
 })
 
-test('subagent calls pass', { options: { context_limit_action: 'block' } }, async ($, on) => {
+test('subagent calls pass', { options: { context_full_action: 'block' } }, async ($, on) => {
   const { ran, measure, call } = await gate($, on)
 
   await measure(80)
@@ -480,7 +480,7 @@ test('an answer to an old level does not decide a new one', async ($, on) => {
   await waiting
 
   expect(asked).toHaveLength(2)
-  expect(asked[1]).toContain('pace overrun')
+  expect(asked[1]).toContain('pace over')
   expect(ran).toEqual(['a'])
 })
 
@@ -497,11 +497,11 @@ test('a typed answer asks again', async ($, on) => {
 })
 
 const STORED_LIMIT = {
-  context: { ladder: 'context', level: { name: 'limit', at: 75, action: 'block' }, value: 80 },
+  context: { ladder: 'context', level: { name: 'full', at: 75, action: 'block' }, value: 80 },
   pace: null,
 }
 
-test('a value stored under another shape reads as no level', { options: { context_limit_action: 'block' } }, async ($, on) => {
+test('a value stored under another shape reads as no level', { options: { context_full_action: 'block' } }, async ($, on) => {
   on('state.get', (_, e, next) =>
     e.key === 'levels' ? { value: { value: STORED_LIMIT, version: 0 } } : next(e),
   )

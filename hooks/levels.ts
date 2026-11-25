@@ -12,13 +12,17 @@ const WINDOWS: Record<string, { length: number; label: '5h' | '7d' }> = {
 
 const SEVERITY: readonly Action[] = ['none', 'alert', 'ask', 'block']
 
-const ADVICE: Record<LevelName, string> = {
-  opportunity: 'consider a fresh session at the next natural stop point',
-  critical: 'finish the current piece only, then start a fresh session',
-  limit: 'stop now and start a fresh session',
-  tight: 'spending faster than the window allows, ease off',
-  short: 'show the pace and ask before starting long work',
-  overrun: 'start nothing new, finish the current step, then pause',
+const ADVICE: Record<Hit['ladder'], Partial<Record<LevelName, string>>> = {
+  context: {
+    warm: 'consider a fresh session at the next natural stop point',
+    hot: 'finish the current piece only, then start a fresh session',
+    full: 'stop now and start a fresh session',
+  },
+  pace: {
+    warm: 'spending faster than the window allows, ease off',
+    hot: 'show the pace and ask before starting long work',
+    over: 'start nothing new, finish the current step, then pause',
+  },
 }
 
 /** The length and short label of a rate-limit window kind headroom knows. */
@@ -131,7 +135,7 @@ const label = (hit: Hit): string => `${hit.ladder} ${hit.level.name} ${value(hit
 
 /** The sentence headroom shows and hands to the model for one level. */
 export const line = (hit: Hit): string =>
-  `headroom: ${label(hit)}: ${ADVICE[hit.level.name]}`
+  `headroom: ${label(hit)}: ${ADVICE[hit.ladder][hit.level.name] ?? ''}`
 
 /** The band text: every active level, context first. */
 export const band = (active: Active): string =>
