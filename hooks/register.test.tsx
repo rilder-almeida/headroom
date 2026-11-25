@@ -622,7 +622,7 @@ test('a failing guard with no known level lets the call run', async ($, on) => {
 test('a malformed value under the same shape lets the call run', async ($, on) => {
   on('state.get', (_, e, next) =>
     e.key === 'levels'
-      ? { value: { value: { shape: 'levels-1', value: { context: 'bad', pace: null } }, version: 0 } }
+      ? { value: { value: { shape: 'levels-2', value: { context: 'bad', pace: null } }, version: 0 } }
       : next(e),
   )
   const logs: string[] = []
@@ -639,14 +639,43 @@ test('a malformed value under the same shape lets the call run', async ($, on) =
   expect(logs.some(text => text.includes('stored levels are unreadable'))).toBe(true)
 })
 
-test('a failing guard while an ask level is active refuses the call', async ($, on) => {
+test('a failing guard while an ask level is active lets the call run', async ($, on) => {
   const { ran, measure, call } = await gate($, on, [], 'broken')
 
   await measure(80)
   const got = await call('a')
 
+  expect(got.deny).toBeUndefined()
+  expect(ran).toEqual(['a'])
+})
+
+test('a failing guard while block is on keeps tools blocked', { options: { pace_hot_action: 'block' } }, async ($, on) => {
+  const broken = { now: false }
+  on('state.get', (_, e, next) =>
+    broken.now && e.key === 'reading' ? { value: { value: { context: 10, rateLimits: 5 }, version: 1 } } : next(e),
+  )
+  const { ran, measure, call } = await gate($, on)
+
+  await measure(10, [{ kind: 'five_hour', percentUsed: 81, resetsAt: resetIn(2.5 * HOUR) }])
+  broken.now = true
+  const got = await call('a')
+
   expect(got.deny).toBe('headroom: its guard failed while block was on, so tools stay blocked. Try again, or run /plugin disable headroom.')
   expect(ran).toEqual([])
+})
+
+test('levels stored under the old names are dropped', async ($, on) => {
+  on('state.get', (_, e, next) =>
+    e.key === 'levels'
+      ? { value: { value: { shape: 'levels-1', value: { context: { ladder: 'context', level: { name: 'critical', at: 65, action: 'ask' }, value: 66 }, pace: null } }, version: 1 } }
+      : next(e),
+  )
+  const { asked, ran, call } = await gate($, on)
+
+  await call('a')
+
+  expect(asked).toEqual([])
+  expect(ran).toEqual(['a'])
 })
 
 test('the command marks a window that reset since the last reading', async ($, on) => {
@@ -769,4 +798,21 @@ test('a broken stored forecast is ignored and logged', async ($, on) => {
 
   expect(text).toContain('out 35m')
   expect(logs.some(line => line.includes('stored forecast is unreadable'))).toBe(true)
+})
+
+test('an empty stored forecast is not reported as unreadable', async ($, on) => {
+  const logs: string[] = []
+  mock.clock(on, { now: NOW })
+  usage(on, 10, [])
+  mock.store(on, { forecast: {} })
+  on('ui.log', (_, e) => {
+    logs.push(e.text)
+
+    return { value: undefined }
+  })
+  on('command.register', () => ({ value: { command: 'headroom' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  expect(logs.filter(line => line.includes('unreadable'))).toEqual([])
 })

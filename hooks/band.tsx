@@ -15,6 +15,7 @@ export type Span = { text: string; color?: Color }
 const LEFT = 26
 const LABEL = 11
 const COLUMN = 17
+const BLOCK = 14
 
 const COLORS: Record<LevelName | 'ok', Color> = {
   ok: 'inactive',
@@ -84,10 +85,15 @@ export const compact = (band: BandInput): Span[] => {
           ? `▼${column.pace.slice(1)}`
           : `▲${column.pace.replace('+', '')}`
 
-    spans.push(subtle(i === 0 ? '  │  ' : '   '), subtle(`${column.label} `), {
-      text: `${arrow} ⧗ ${column.out}`,
-      color: column.color,
-    })
+    const out = ` ⧗ ${column.out}`
+    const width = i === columns.length - 1 ? 0 : BLOCK - arrow.length
+
+    spans.push(
+      subtle(i === 0 ? '  │  ' : '   '),
+      subtle(`${column.label} `),
+      { text: arrow, color: column.color },
+      { text: out.padEnd(width) },
+    )
   })
 
   return spans

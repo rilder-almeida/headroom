@@ -18,6 +18,8 @@ describe('step', () => {
     ['seeds on the first reading', undefined, { kind: 'five_hour', percentUsed: 61, resetsAt: at(137 * MIN) }, NOW, seed5],
     ['keeps a steady rate', prev7, { kind: 'seven_day', percentUsed: 20 + r0 * 24 * HOUR, resetsAt: R7 }, NOW, r0],
     ['weighs one half-life as half', prev7, { kind: 'seven_day', percentUsed: 20 + 2 * r0 * 24 * HOUR, resetsAt: R7 }, NOW, 1.5 * r0],
+    ['keeps a reset 4:59 apart', prev7, { kind: 'seven_day', percentUsed: 20 + 2 * r0 * 24 * HOUR, resetsAt: at(84 * HOUR + 299_000) }, NOW, 1.5 * r0],
+    ['reseeds on a reset 5:01 apart', prev7, { kind: 'seven_day', percentUsed: 44, resetsAt: at(84 * HOUR + 301_000) }, NOW, 44 / (84 * HOUR - 301_000)],
     ['ignores reset jitter', prev7, { kind: 'seven_day', percentUsed: 20 + 2 * r0 * 24 * HOUR, resetsAt: at(84 * HOUR + 30_000) }, NOW, 1.5 * r0],
     ['reseeds on a new reset', prev7, { kind: 'seven_day', percentUsed: 44, resetsAt: at(86 * HOUR) }, NOW, 44 / (82 * HOUR)],
     ['reseeds when usage drops', prev7, { kind: 'seven_day', percentUsed: 10, resetsAt: R7 }, NOW, 10 / (84 * HOUR)],
@@ -47,14 +49,15 @@ describe('outIn', () => {
   const limit = { kind: 'five_hour', percentUsed: 61, resetsAt: at(137 * MIN) }
   const state = (rate: number): Forecast => ({ at: NOW, used: 61, resetsAt: limit.resetsAt, rate })
 
-  for (const [name, forecast, expected] of [
-    ['runs out before the reset', state(22.4 / HOUR), (39 / 22.4) * HOUR],
-    ['no spend', state(0), null],
-    ['runs out after the reset', state(5 / HOUR), null],
-    ['no forecast', undefined, null],
+  for (const [name, forecast, used, expected] of [
+    ['runs out before the reset', state(22.4 / HOUR), 61, (39 / 22.4) * HOUR],
+    ['no spend', state(0), 61, null],
+    ['runs out after the reset', state(5 / HOUR), 61, null],
+    ['no forecast', undefined, 61, null],
+    ['usage past 100%', state(1 / HOUR), 104, 0],
   ] as const) {
     test(name, () => {
-      const got = outIn(forecast, limit, NOW)
+      const got = outIn(forecast, { ...limit, percentUsed: used }, NOW)
 
       if (expected === null) {
         expect(got).toBeNull()

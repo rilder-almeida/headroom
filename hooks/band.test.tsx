@@ -30,8 +30,8 @@ const SOLO = input(52, [])
 
 describe('compact', () => {
   for (const [name, band, expected, colors] of [
-    ['a calm session', CALM, '●○○○  │  5h ▼8% ⧗ ·   7d ▲4% ⧗ 3d 5h', ['inactive', 'inactive', 'inactive']],
-    ['warm context and 7d', WARM, '●●○○  │  5h ▲12% ⧗ 1h44   7d ▲39% ⧗ 2d 19h', ['warning', 'inactive', 'warning']],
+    ['a calm session', CALM, '●○○○  │  5h ▼8% ⧗ ·          7d ▲4% ⧗ 3d 5h', ['inactive', 'inactive', 'inactive']],
+    ['warm context and 7d', WARM, '●●○○  │  5h ▲12% ⧗ 1h44      7d ▲39% ⧗ 2d 19h', ['warning', 'inactive', 'warning']],
     ['full context, hot 5h', TIGHT, '●●●●  │  5h ▲62% ⧗ 35m', ['error', 'claude']],
     ['no subscription', SOLO, '●●○○', ['warning']],
     ['a young window', input(52, [{ kind: 'five_hour', percentUsed: 3, resetsAt: at(4.8 * HOUR) }]), '●●○○  │  5h n/a ⧗ ·', ['warning']],
@@ -44,6 +44,14 @@ describe('compact', () => {
       expect(marks).toEqual([...colors])
     })
   }
+
+  test('each window block keeps its width', () => {
+    expect(plain(compact(CALM)).indexOf('7d')).toBe(plain(compact(WARM)).indexOf('7d'))
+  })
+
+  test('the run-out time stays plain text', () => {
+    expect(compact(WARM).filter(span => span.text.includes('⧗')).map(span => span.color)).toEqual([undefined, undefined])
+  })
 
   test('no reading yet', () => {
     expect(plain(compact({ ...SOLO, reading: null }))).toBe('○○○○')

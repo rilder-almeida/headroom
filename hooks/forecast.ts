@@ -69,7 +69,7 @@ export const outIn = (state: Forecast | undefined, limit: Limit, now: number): n
     return null
   }
 
-  const out = (100 - limit.percentUsed) / state.rate
+  const out = Math.max(0, (100 - limit.percentUsed) / state.rate)
 
   return out < reset - now ? out : null
 }

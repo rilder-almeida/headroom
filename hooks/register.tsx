@@ -25,7 +25,7 @@ import type { Limit } from './levels'
 
 const NOTHING: Active = { context: null, pace: null }
 
-const levels = atom({ plugin: 'headroom', key: 'levels' } as const, NOTHING, { shape: 'levels-1' })
+const levels = atom({ plugin: 'headroom', key: 'levels' } as const, NOTHING, { shape: 'levels-2' })
 const pending = atom({ plugin: 'headroom', key: 'pending' } as const, null)
 const armedFor = atom({ plugin: 'headroom', key: 'armedFor' } as const, null as string | null)
 const grant = atom({ plugin: 'headroom', key: 'grant' } as const, 'pending' as Grant, { shape: 'grant-2' })
@@ -111,9 +111,9 @@ const loadForecasts = async ($: EngineInterface): Promise<Forecasts> => {
     return {}
   }
 
-  const entries = typeof value === 'object' && value !== null ? Object.entries(value) : []
+  const entries = typeof value === 'object' && value !== null && !Array.isArray(value) ? Object.entries(value) : null
 
-  if (entries.length === 0 || !entries.every(([, one]) => isForecast(one))) {
+  if (entries === null || !entries.every(([, one]) => isForecast(one))) {
     $.ui.log(`headroom: its stored forecast is unreadable: ${JSON.stringify(value)}`, { to: 'debug' })
 
     return {}
@@ -159,7 +159,7 @@ const actionOf = (state: NonNullable<typeof live>) =>
 
 const isGating = ($: EngineInterface, state: typeof live): boolean => {
   try {
-    return state !== null && atLeast(actionOf(state), 'ask')
+    return state !== null && actionOf(state) === 'block'
   } catch (error) {
     $.ui.log(`headroom: its stored levels are unreadable: ${String(error)}`, { to: 'debug' })
 
