@@ -1,9 +1,9 @@
 import { isSameReset } from './forecast'
 import { windowOf } from './levels'
 import type { Limit } from './levels'
-import type { Latch, Latches, Sample, Samples, Trail, Tuning } from '../types'
+import type { Held, Kept, Latch, Latches, Sample, Samples, Trail, Tuning } from '../types'
 
-export type { Latch, Latches, Sample, Samples, Trail }
+export type { Kept, Latch, Latches, Sample, Samples, Trail }
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -148,3 +148,28 @@ const isTrail = (value: unknown): value is Trail =>
 /** Whether a stored value has the shape of the usage samples. */
 export const isSamples = (value: unknown): value is Samples =>
   typeof value === 'object' && value !== null && !Array.isArray(value) && Object.values(value).every(isTrail)
+
+const NAMES = ['warm', 'hot', 'full', 'over']
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const isLatch = (value: unknown): value is Latch =>
+  isRecord(value) &&
+  typeof value.isOn === 'boolean' &&
+  (value.belowSince === null || isNumber(value.belowSince)) &&
+  (value.told === null || (isRecord(value.told) && isNumber(value.told.at) && isNumber(value.told.value)))
+
+/** Whether a stored value has the shape of the kept usage burst and margin state. */
+export const isKept = (value: unknown): value is Kept =>
+  isRecord(value) &&
+  isRecord(value.latches) &&
+  Object.values(value.latches).every(isLatch) &&
+  isRecord(value.held) &&
+  Object.values(value.held).every(name => typeof name === 'string' && NAMES.includes(name))
+
+const usageOnly = <T>(record: Partial<Record<string, T>>): Partial<Record<string, T>> =>
+  Object.fromEntries(Object.entries(record).filter(([key]) => windowOf(key) !== undefined))
+
+/** The part of the burst and margin state that belongs to the account: the rate-limit windows, never the context. */
+export const keepOf = (latches: Latches, held: Held): Kept => ({ latches: usageOnly(latches), held: usageOnly(held) })

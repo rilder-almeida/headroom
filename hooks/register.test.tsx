@@ -177,7 +177,7 @@ test('the forecast is stored only when a window moves', async ($, on) => {
   on('store.set', (_, e) => {
     if (e.key === 'forecast') {
       stored.push(e.value)
-    } else {
+    } else if (e.key === 'samples') {
       samples.push(e.value)
     }
 
@@ -311,7 +311,7 @@ test('a reading steps the forecast and stores it', async ($, on) => {
   on('store.set', (_, e) => {
     if (e.key === 'forecast') {
       stored.push(e.value)
-    } else {
+    } else if (e.key === 'samples') {
       samples.push(e.value)
     }
 
@@ -367,13 +367,19 @@ test('the details button toggles the full view', async ($, on) => {
 
   await measure(10)
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await band.find({ key: 'details' }))?.props.label).toBe('⋯')
+
   await band.press({ key: 'details' })
 
   expect(await band.find({ type: 'Text', text: 'level  ok <45%' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'headroom' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'Context is ok at 10%.' })).toMatchObject({ props: { color: 'subtle' } })
+  expect((await band.find({ key: 'details' }))?.props.label).toBe('[-]')
 
   await band.press({ key: 'details' })
 
   expect(await band.find({ type: 'Text', text: 'level  ok <45%' })).toBeUndefined()
+  expect(await band.find({ type: 'Text', text: 'headroom' })).toBeUndefined()
   await band.unmount()
 })
 
@@ -944,4 +950,138 @@ test('an empty stored forecast is not reported as unreadable', async ($, on) => 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   expect(logs.filter(line => line.includes('unreadable'))).toEqual([])
+})
+
+const MIN = 60_000
+const R5 = resetIn(2.5 * HOUR)
+
+const startWith = async ($: Engine, on: On, live: { context: number; used: number }, stored?: Record<string, unknown>) => {
+  const clock = mock.clock(on, { now: NOW })
+  on('session.usage', () => ({
+    value: {
+      startedAt: NOW,
+      context: { window: 1_000_000, percent: live.context },
+      rateLimits: [{ kind: 'five_hour', percentUsed: live.used, resetsAt: R5 }],
+    },
+  }))
+  const store: Record<string, unknown> = { ...stored }
+  on('store.get', (_, e) => ({ value: store[e.key] }))
+  on('store.set', (_, e) => {
+    store[e.key] = e.value
+
+    return { value: undefined }
+  })
+  on('classic.PostToolUse', () => ({}))
+  on('command.register', () => ({ value: { command: 'headroom' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const tool = async (context: number, used: number, after = 0) => {
+    live.context = context
+    live.used = used
+    await clock.advance(after)
+
+    return $.classic.PostToolUse({ tool_name: 'Read', tool_input: {}, tool_response: {}, tool_use_id: `t${context}-${used}` })
+  }
+
+  return { store, tool }
+}
+
+const SPIKE_SAMPLES = { five_hour: { resetsAt: R5, samples: [{ at: NOW - 10 * MIN, used: 20 }] } }
+const LIT_5H = { isOn: true, belowSince: null, told: { at: NOW - MIN, value: 60 / HOUR } }
+const BURST_5H = 'headroom: 5h burst, 60% per hour over the last 20 minutes'
+
+test('only the usage part of the burst state is stored', async ($, on) => {
+  const { store, tool } = await startWith($, on, { context: 30, used: 20 })
+
+  await tool(40, 20)
+  await tool(51, 30, 10 * MIN)
+
+  const kept = store.burst as { latches: Record<string, unknown>; held: Record<string, unknown> }
+
+  expect(Object.keys(kept.latches)).toEqual(['five_hour'])
+  expect(kept.latches.five_hour).toMatchObject({ isOn: true })
+  expect(kept.held.context).toBeUndefined()
+})
+
+for (const [name, stored, expected] of [
+  ['a stored lit usage burst stays quiet after a restart', { latches: { five_hour: LIT_5H }, held: {} }, undefined],
+  ['a stored dark usage burst lights after a restart', { latches: {}, held: {} }, [BURST_5H]],
+] as const) {
+  test(name, async ($, on) => {
+    const { tool } = await startWith($, on, { context: 30, used: 30 }, { samples: SPIKE_SAMPLES, burst: stored })
+
+    const ran = await tool(30, 30)
+
+    expect(ran.additionalContext).toEqual(expected)
+  })
+}
+
+test('a new session tells its own context burst', async ($, on) => {
+  const stored = { latches: { context: { isOn: true, belowSince: null, told: { at: 2, value: 11 } } }, held: { context: 'warm' } }
+  const { tool } = await startWith($, on, { context: 30, used: 1 }, { burst: stored })
+
+  await tool(30, 1)
+  const ran = await tool(41, 1)
+
+  expect(ran.additionalContext).toEqual(['headroom: context burst, up 11% in the last 1 tool call'])
+})
+
+for (const [name, held, expected] of [
+  ['a stored margin holds the 7d level after a restart', { seven_day: 'warm' }, 'warm'],
+  ['without a stored margin the 7d level drops', {}, 'ok'],
+] as const) {
+  test(name, async ($, on) => {
+    mock.clock(on, { now: NOW })
+    usage(on, 10, [{ kind: 'seven_day', percentUsed: 70, resetsAt: resetIn(68 * HOUR) }])
+    await start(on, $, { burst: { latches: {}, held } })
+
+    const { text } = await run($)
+
+    expect(text).toContain(`7d       70%  pace +18%  ${expected}`)
+  })
+}
+
+test('a failed store write is tried again on the next reading', async ($, on) => {
+  const writes: unknown[] = []
+  const fill = { fails: true }
+  mock.clock(on, { now: NOW })
+  usage(on, 10, [{ kind: 'five_hour', percentUsed: 30, resetsAt: R5 }])
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', (_, e) => {
+    if (e.key === 'burst') {
+      writes.push(e.value)
+
+      if (fill.fails) {
+        fill.fails = false
+        throw new Error('disk busy')
+      }
+    }
+
+    return { value: undefined }
+  })
+  on('ui.log', () => ({ value: undefined }))
+  on('classic.PostToolUse', () => ({}))
+  on('command.register', () => ({ value: { command: 'headroom' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const result = (id: string) =>
+    $.classic.PostToolUse({ tool_name: 'Read', tool_input: {}, tool_response: {}, tool_use_id: id })
+
+  await result('t1')
+  await result('t2')
+  await result('t3')
+
+  expect(writes).toHaveLength(2)
+})
+
+test('a broken stored burst state is ignored and logged', async ($, on) => {
+  const logs: string[] = []
+  on('ui.log', (_, e) => {
+    logs.push(e.text)
+
+    return { value: undefined }
+  })
+  await startWith($, on, { context: 30, used: 1 }, { burst: { latches: 'x' } })
+
+  expect(logs).toContain('headroom: its stored burst state is unreadable: {"latches":"x"}')
 })

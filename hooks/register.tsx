@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionUsage } from 'claude-code'
 
 import type { Active, Forecasts, Grant, Held, Hit, Latches, Reading, Samples } from '../types'
-import { DARK, contextRise, contextRule, follow, isSamples, latch, lookbackOf, record, span, usageRate, usageRule } from './burst'
+import { DARK, contextRise, contextRule, follow, isKept, isSamples, keepOf, latch, lookbackOf, record, span, usageRate, usageRule } from './burst'
 import { compact, full } from './band'
 import type { BandInput, Span } from './band'
 import { ladders } from './config'
@@ -113,6 +113,9 @@ const report = (usage: SessionUsage, band: BandInput): string => {
 
 const STORE_KEY = 'forecast'
 const SAMPLES_KEY = 'samples'
+const KEPT_KEY = 'burst'
+
+let saved = ''
 
 const bandOf = async ($: EngineInterface, config: Ladders, last: Reading | null): Promise<BandInput> => ({
   reading: last,
@@ -360,6 +363,20 @@ const measure = async (
   if (told.length > 0) {
     await update($, pending, text => [...(text === null ? [] : [text]), ...told].join('\n'))
   }
+
+  const keep = keepOf(await read($, latches), await read($, held))
+  const shot = JSON.stringify(keep)
+
+  if (shot !== saved) {
+    await $.store
+      .set(KEPT_KEY, keep)
+      .then(() => {
+        saved = shot
+      })
+      .catch((error: unknown) => {
+        $.ui.log(`headroom: the burst state could not be stored: ${String(error)}`, { to: 'debug' })
+      })
+  }
 }
 
 const take = async ($: EngineInterface): Promise<string | null> => {
@@ -394,6 +411,22 @@ export const register: Register = (on, options) => {
     })
 
     await update($, samples, () => kept)
+
+    const state = await $.store.get(KEPT_KEY).catch((error: unknown) => {
+      $.ui.log(`headroom: its stored burst state could not be read: ${String(error)}`, { to: 'debug' })
+
+      return undefined
+    })
+
+    if (isKept(state)) {
+      const kept = keepOf(state.latches, state.held)
+
+      saved = JSON.stringify(kept)
+      await update($, latches, () => kept.latches)
+      await update($, held, () => kept.held)
+    } else if (state !== undefined) {
+      $.ui.log(`headroom: its stored burst state is unreadable: ${JSON.stringify(state)}`, { to: 'debug' })
+    }
 
     const isFull = await $.store.get('details').catch((error: unknown) => {
       $.ui.log(`headroom: the details toggle could not be read: ${String(error)}`, { to: 'debug' })
@@ -562,7 +595,7 @@ export const register: Register = (on, options) => {
     const band = await bandOf($, config, await read($, reading))
     const isFull = await read($, details)
     const footer = isFull ? summary(band) : ''
-    const rows = isFull ? full(band) : [compact(band)]
+    const rows = isFull ? [[{ text: 'headroom' }], [{ text: ' ' }], ...full(band)] : [compact(band)]
     const toggle = async () => {
       const shown = await update($, details, open => !open)
 
@@ -587,14 +620,15 @@ export const register: Register = (on, options) => {
             <Box key="band-head" flexDirection="row">
               {row(spans, i)}
               <Box flexGrow={1} />
-              <Button key="details" plain label="⋯" onPress={toggle} />
+              <Button key="details" plain label={isFull ? '[-]' : '⋯'} onPress={toggle} />
             </Box>
           ) : (
             row(spans, i)
           ),
         )}
+        {footer === '' ? null : <Text key="band-gap"> </Text>}
         {footer === '' ? null : (
-          <Text key="band-summary" wrap="wrap">
+          <Text key="band-summary" color="subtle" wrap="wrap">
             {footer}
           </Text>
         )}

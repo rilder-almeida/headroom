@@ -45,6 +45,9 @@ export type Latches = Partial<Record<string, Latch>>
 /** The level each ladder key stood at after the last reading: `context` and each rate-limit window kind. */
 export type Held = Partial<Record<string, LevelName>>
 
+/** The usage burst and margin state of the rate-limit windows, kept across restarts because the quota belongs to the account; context state stays in its session. */
+export type Kept = { latches: Latches; held: Held }
+
 /** One usage reading kept for the burst: when, and the percent used. */
 export type Sample = { at: number; used: number }
 

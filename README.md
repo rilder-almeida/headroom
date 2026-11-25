@@ -64,9 +64,11 @@ The color tells you the level at a glance:
 | orange | `hot` | Finish what is in flight. |
 | red | `full` or `over` | Stop. |
 
-Select `⋯` to open the full view. headroom keeps your choice across sessions.
+Select `⋯` to open the full view, and `[-]` to close it. headroom keeps your choice across sessions.
 
 ```
+headroom                                                   [-]
+
 context                   │            5h               7d
 now    52%                │ now        61%              44%
 level  warm <65%          │ pace       +12%             +39%
@@ -83,7 +85,7 @@ Each row answers one question:
 | `level` | Which level is it at, and where does the next level start? |
 | `out` | When does the window run out at the current speed? |
 
-In the full view, the burst symbol sits next to the number in burst: the context `now` cell, or the `pace` cell of a window. Below the rows, [the summary line](#the-summary-line) says the same in one paragraph.
+In the full view, the burst symbol sits next to the number in burst: the context `now` cell, or the `pace` cell of a window. Below the rows, after a blank line, [the summary line](#the-summary-line) says the same in one paragraph, in gray.
 
 ## What headroom watches
 
