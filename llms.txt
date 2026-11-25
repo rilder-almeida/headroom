@@ -1,0 +1,59 @@
+# headroom
+
+> headroom is a Claude Code mod (plugin). It shows the context fill and the rate-limit pace in a band above the prompt, forecasts when each rate-limit window runs out, and alerts, asks or blocks tool calls when a level gets high. It reads both numbers from Claude Code itself, starts no process and makes no model call.
+
+## Install
+
+- Install: `/plugin install headroom --marketplace rilder-almeida/headroom`
+- From a shell: `claude plugin marketplace add rilder-almeida/headroom`, then `claude plugin install headroom@headroom`
+- Update: `claude plugin marketplace update headroom`, then `claude plugin update headroom@headroom`
+- After an install or update, restart Claude Code. The band appears at the next session start.
+- Turn off: `/plugin disable headroom`
+- No configuration is needed. The defaults below apply.
+
+## Use
+
+- The band above the prompt is always visible. Compact row: `●●○○  │  5h ▲12% ⧗ 1h44   7d ▲39% ⧗ 2d19h`
+  - Four dots: context level (`ok`, `warm`, `hot`, `full`). Filled dots show the level reached.
+  - `5h`, `7d`: the 5-hour and 7-day rate-limit windows.
+  - `▲`/`▼` and a percent: pace, faster or slower than an even spread until the reset.
+  - `⧗` and a time: when the window runs out at the current speed. No `⧗` means that the window lasts until its reset.
+  - Colors: gray `ok`, yellow `warm`, orange `hot`, red `full`/`over`.
+- Select `⋯` at the end of the row for the full view: rows `now`, `pace`, `level` (for example `warm <65%`: warm until 65%) and `out`. The choice persists across sessions.
+- `/headroom` prints the same reading as text.
+- Without a Claude subscription there are no rate-limit windows, so only the context level shows.
+
+## Levels and actions
+
+| Number | Level | Starts at | Default action |
+|---|---|---|---|
+| Context fill | `warm` | 45% | `alert` |
+| Context fill | `hot` | 65% | `alert` |
+| Context fill | `full` | 75% | `ask` |
+| Pace | `warm` | +20% | `alert` |
+| Pace | `hot` | +50% | `ask` |
+| Pace | `over` | +100% | `ask` |
+
+- Pace uses the worse of the 5-hour and 7-day windows, and counts only after the first 10% of a window.
+- `none`: nothing besides the band.
+- `alert`: a notice when the level rises, and one line to Claude on every change into an alerting level, for example `headroom: 7d pace warm +39%, out in 2d 19h: spending faster than the window allows, ease off`.
+- `ask`: before the next tool call, the question `Block tools until this level changes?` with `Continue` or `Block`. Closing it with no answer lets the tool run and asks again next time. The answer holds until a level with `ask` or `block` changes. In a session with nobody to ask (`claude -p`), `ask` acts as `alert`.
+- `block`: every tool call in the main session is refused with the level line, until the level goes down. Subagents and questions to the user are never blocked.
+- If two levels are active, the most severe action counts.
+
+## Configuration
+
+- Open `/config` and find the headroom rows, or run `claude plugin configure headroom`.
+- `<number>_<level>_at`: the threshold, a number. Keys: `context_warm_at`, `context_hot_at`, `context_full_at`, `pace_warm_at`, `pace_hot_at`, `pace_over_at`.
+- `<number>_<level>_action`: one of `none`, `alert`, `ask`, `block`. Keys: `context_warm_action`, `context_hot_action`, `context_full_action`, `pace_warm_action`, `pace_hot_action`, `pace_over_action`.
+- The thresholds of one number must go up from level to level. Otherwise headroom does not load and names the fields.
+- `wake_at` (default 75): when the 5-hour window passes this percent, headroom sends a prompt with a fresh reading at the window's reset. `0` turns it off.
+
+## Upgrade from 0.x
+
+Version 1.0.0 renamed the levels and does not read the old keys. Set values again under the new names: `opportunity` to `warm`, `critical` to `hot`, `limit` to `full` (context); `tight` to `warm`, `short` to `hot`, `overrun` to `over` (pace). Example: `context_limit_action` is now `context_full_action`.
+
+## Docs
+
+- [README](https://github.com/rilder-almeida/headroom/blob/main/README.md): the full guide, with a session walkthrough and the run-out forecast method
+- [Releases](https://github.com/rilder-almeida/headroom/releases): what changed in each version
