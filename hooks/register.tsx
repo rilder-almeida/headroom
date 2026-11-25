@@ -143,18 +143,27 @@ const arm = async ($: EngineInterface, config: Ladders, resetsAt: string) => {
   })
 }
 
-let live: { active: Active; grant: Grant; epoch: number } | null = null
+type Live = { active: Active; grant: Grant; epoch: number }
 
-const current = async ($: EngineInterface) => {
-  live ??= { active: await read($, levels), grant: await read($, grant), epoch: 0 }
+let live: Live | null = null
+let loading: Promise<Live> | null = null
+
+const load = async ($: EngineInterface): Promise<Live> => {
+  live = { active: await read($, levels), grant: await read($, grant), epoch: 0 }
 
   return live
 }
 
-const actionOf = (state: NonNullable<typeof live>) =>
+const current = ($: EngineInterface) => {
+  loading ??= load($)
+
+  return loading
+}
+
+const actionOf = (state: Live) =>
   state.grant === 'blocked' ? 'block' : effective(state.active)
 
-const isGating = ($: EngineInterface, state: typeof live): boolean => {
+const isGating = ($: EngineInterface, state: Live | null): boolean => {
   try {
     return state !== null && actionOf(state) === 'block'
   } catch (error) {
@@ -175,6 +184,8 @@ const measure = async ($: EngineInterface, config: Ladders, e: Pick<SessionUsage
   }
   const state = await current($)
   const before = state.active
+
+  state.active = active
   const hot = e.rateLimits.find(limit => limit.kind === 'five_hour')
   const hotReset = hot?.resetsAt === undefined ? NaN : Date.parse(hot.resetsAt)
 
@@ -201,11 +212,16 @@ const measure = async ($: EngineInterface, config: Ladders, e: Pick<SessionUsage
 
   await update($, forecast, () => stored)
   await update($, reading, () => ({ context: e.context.percent, rateLimits: [...e.rateLimits] }))
-  await $.store.set(STORE_KEY, stored).catch((error: unknown) => {
-    $.ui.log(`headroom: the forecast could not be stored: ${String(error)}`, { to: 'debug' })
-  })
+  const moved = Object.entries(stepped).some(
+    ([kind, one]) => kept[kind]?.used !== one?.used || kept[kind]?.resetsAt !== one?.resetsAt,
+  )
 
-  state.active = active
+  if (moved) {
+    await $.store.set(STORE_KEY, stored).catch((error: unknown) => {
+      $.ui.log(`headroom: the forecast could not be stored: ${String(error)}`, { to: 'debug' })
+    })
+  }
+
   await update($, levels, () => active)
 
   if (!sameGate(before, active)) {
@@ -230,7 +246,6 @@ const measure = async ($: EngineInterface, config: Ladders, e: Pick<SessionUsage
       await update($, pending, () => null)
     }
   }
-
 }
 
 export const register: Register = (on, options) => {

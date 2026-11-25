@@ -137,6 +137,51 @@ test('a finished tool refreshes the level mid-turn', async ($, on) => {
   expect(after.additionalContext).toEqual([WARM_50])
 })
 
+test('parallel tool results raise one notice', async ($, on) => {
+  usage(on, 50, [])
+  const { toasts } = await harness($, on)
+  const result = (id: string) =>
+    $.classic.PostToolUse({ tool_name: 'Read', tool_input: {}, tool_response: {}, tool_use_id: id })
+
+  await Promise.all([result('t1'), result('t2'), result('t3')])
+
+  expect(toasts).toEqual([WARM_50])
+})
+
+test('the forecast is stored only when a window moves', async ($, on) => {
+  const stored: unknown[] = []
+  const used = { now: 40 }
+  const clock = mock.clock(on, { now: NOW })
+  on('session.usage', () => ({
+    value: {
+      startedAt: NOW,
+      context: { window: 1_000_000, percent: 10 },
+      rateLimits: [{ kind: 'five_hour', percentUsed: used.now, resetsAt: resetIn(2.5 * HOUR) }],
+    },
+  }))
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', (_, e) => {
+    stored.push(e.value)
+
+    return { value: undefined }
+  })
+  on('ui.toast', () => ({ value: undefined }))
+  on('classic.PostToolUse', () => ({}))
+  on('command.register', () => ({ value: { command: 'headroom' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  const result = (id: string) =>
+    $.classic.PostToolUse({ tool_name: 'Read', tool_input: {}, tool_response: {}, tool_use_id: id })
+
+  await result('t1')
+  await result('t2')
+  used.now = 41
+  await clock.advance(60_000)
+  await result('t3')
+
+  expect(stored).toHaveLength(2)
+})
+
 test('the line reaches the model mid-turn', async ($, on) => {
   const { contexts, measure } = await harness($, on)
 
