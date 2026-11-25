@@ -15,7 +15,6 @@ export type Span = { text: string; color?: Color }
 const LEFT = 26
 const LABEL = 11
 const COLUMN = 17
-const BLOCK = 14
 
 const COLORS: Record<LevelName | 'ok', Color> = {
   ok: 'inactive',
@@ -70,7 +69,7 @@ const context = (band: BandInput) => {
   }
 }
 
-/** The always-visible row: context stage dots, then pace and run-out per window. */
+/** The always-visible row: context stage dots, then pace per window and its run-out time when it runs out before the reset. */
 export const compact = (band: BandInput): Span[] => {
   const ctx = context(band)
   const dots = [0, 1, 2, 3].map(i => (i <= ctx.stage ? '●' : '○')).join('')
@@ -85,15 +84,11 @@ export const compact = (band: BandInput): Span[] => {
           ? `▼${column.pace.slice(1)}`
           : `▲${column.pace.replace('+', '')}`
 
-    const out = ` ⧗ ${column.out}`
-    const width = i === columns.length - 1 ? 0 : BLOCK - arrow.length
+    spans.push(subtle(i === 0 ? '  │  ' : '   '), subtle(`${column.label} `), { text: arrow, color: column.color })
 
-    spans.push(
-      subtle(i === 0 ? '  │  ' : '   '),
-      subtle(`${column.label} `),
-      { text: arrow, color: column.color },
-      { text: out.padEnd(width) },
-    )
+    if (column.out !== '·') {
+      spans.push({ text: ` ⧗ ${column.out.replace(' ', '')}` })
+    }
   })
 
   return spans

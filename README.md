@@ -3,7 +3,7 @@
 A gauge for your Claude Code session. headroom shows how full the context window is and how fast you spend your rate limits, in one quiet line above the prompt. When a number gets high, it warns you, asks you, or stops tool calls, as you choose.
 
 ```
-●●○○  │  5h ▲12% ⧗ 1h44      7d ▲39% ⧗ 2d 19h        ⋯
+●●○○  │  5h ▲12% ⧗ 1h44   7d ▲39% ⧗ 2d19h        ⋯
 ```
 
 headroom reads both numbers from Claude Code itself. It starts no extra process and makes no model call.
@@ -34,15 +34,15 @@ The band appears above the prompt at the next session start. You do not need to 
 ## Read the band in ten seconds
 
 ```
-●●○○  │  5h ▲12% ⧗ 1h44      7d ▲39% ⧗ 2d 19h        ⋯
-↑        ↑  ↑      ↑                                 ↑
-1        2  3      4                                 5
+●●○○  │  5h ▲12% ⧗ 1h44   7d ▲39% ⧗ 2d19h        ⋯
+↑        ↑  ↑      ↑                             ↑
+1        2  3      4                             5
 ```
 
 1. Context level: one dot per level (`ok`, `warm`, `hot`, `full`). The filled dots show the level that the context fill reached.
 2. The rate-limit window: `5h` for 5 hours, `7d` for 7 days.
 3. Pace: `▲` faster than an even spread until the reset, `▼` slower.
-4. Run-out time: how long until this window runs out at the current speed. `⧗ ·` means that it lasts until its reset.
+4. Run-out time: how long until this window runs out at the current speed. A window with no `⧗` lasts until its reset.
 5. The button that opens the full view.
 
 The color tells you the level at a glance:
