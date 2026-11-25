@@ -167,6 +167,72 @@ const isGating = ($: EngineInterface, state: typeof live): boolean => {
 const answerOf = (answer: string): Grant | null =>
   answer === 'Continue' ? 'granted' : answer === 'Block' ? 'blocked' : null
 
+const measure = async ($: EngineInterface, config: Ladders, e: Pick<SessionUsage, 'context' | 'rateLimits'>) => {
+  const now = await $.clock.now()
+  const active: Active = {
+    context: contextHit(e.context.percent, config.context),
+    pace: paceHit(e.rateLimits, now, config.pace),
+  }
+  const state = await current($)
+  const before = state.active
+  const hot = e.rateLimits.find(limit => limit.kind === 'five_hour')
+  const hotReset = hot?.resetsAt === undefined ? NaN : Date.parse(hot.resetsAt)
+
+  if (
+    config.wakeAt > 0 &&
+    hot?.resetsAt !== undefined &&
+    hotReset > now &&
+    hot.percentUsed >= config.wakeAt &&
+    (await read($, armedFor)) !== hot.resetsAt
+  ) {
+    await arm($, config, hot.resetsAt)
+  }
+
+  const kept = await read($, forecast)
+  const stepped: Forecasts = Object.fromEntries(
+    e.rateLimits.flatMap(limit => {
+      const moved = step(kept[limit.kind], limit, now)
+
+      return moved === undefined ? [] : [[limit.kind, moved]]
+    }),
+  )
+  const stored = { ...kept, ...stepped }
+  const at: Context = { limits: e.rateLimits, stored, now }
+
+  await update($, forecast, () => stored)
+  await update($, reading, () => ({ context: e.context.percent, rateLimits: [...e.rateLimits] }))
+  await $.store.set(STORE_KEY, stored).catch((error: unknown) => {
+    $.ui.log(`headroom: the forecast could not be stored: ${String(error)}`, { to: 'debug' })
+  })
+
+  state.active = active
+  await update($, levels, () => active)
+
+  if (!sameGate(before, active)) {
+    state.epoch += 1
+    state.grant = 'pending'
+    await update($, grant, () => 'pending')
+  }
+
+  if (!sameLevels(before, active)) {
+    const rose = loud(active, at, hit =>
+      stageOf(hit, config[hit.ladder]) > stageOf(before[hit.ladder], config[hit.ladder]),
+    )
+
+    if (rose !== '') {
+      $.ui.toast(rose)
+    }
+
+    if (atLeast(effective(active), 'alert')) {
+      const text = loud(active, at)
+      await update($, pending, () => text)
+    } else if (atLeast(effective(before), 'alert')) {
+      await update($, pending, () => null)
+    }
+  }
+
+}
+
 export const register: Register = (on, options) => {
   const config = ladders(options)
   let asking: { epoch: number; answer: Promise<Grant | null> } | null = null
@@ -227,68 +293,7 @@ export const register: Register = (on, options) => {
   })
 
   on('session.measure', async ($, e, next) => {
-    const now = await $.clock.now()
-    const active: Active = {
-      context: contextHit(e.context.percent, config.context),
-      pace: paceHit(e.rateLimits, now, config.pace),
-    }
-    const state = await current($)
-    const before = state.active
-    const hot = e.rateLimits.find(limit => limit.kind === 'five_hour')
-    const hotReset = hot?.resetsAt === undefined ? NaN : Date.parse(hot.resetsAt)
-
-    if (
-      config.wakeAt > 0 &&
-      hot?.resetsAt !== undefined &&
-      hotReset > now &&
-      hot.percentUsed >= config.wakeAt &&
-      (await read($, armedFor)) !== hot.resetsAt
-    ) {
-      await arm($, config, hot.resetsAt)
-    }
-
-    const kept = await read($, forecast)
-    const stepped: Forecasts = Object.fromEntries(
-      e.rateLimits.flatMap(limit => {
-        const moved = step(kept[limit.kind], limit, now)
-
-        return moved === undefined ? [] : [[limit.kind, moved]]
-      }),
-    )
-    const stored = { ...kept, ...stepped }
-    const at: Context = { limits: e.rateLimits, stored, now }
-
-    await update($, forecast, () => stored)
-    await update($, reading, () => ({ context: e.context.percent, rateLimits: [...e.rateLimits] }))
-    await $.store.set(STORE_KEY, stored).catch((error: unknown) => {
-      $.ui.log(`headroom: the forecast could not be stored: ${String(error)}`, { to: 'debug' })
-    })
-
-    state.active = active
-    await update($, levels, () => active)
-
-    if (!sameGate(before, active)) {
-      state.epoch += 1
-      state.grant = 'pending'
-      await update($, grant, () => 'pending')
-    }
-
-    if (!sameLevels(before, active)) {
-      const rose = loud(active, at, hit =>
-        stageOf(hit, config[hit.ladder]) > stageOf(before[hit.ladder], config[hit.ladder]),
-      )
-
-      if (rose !== '') {
-        $.ui.toast(rose)
-      }
-
-      if (atLeast(effective(active), 'alert')) {
-        const text = loud(active, at)
-        await update($, pending, () => text)
-      } else if (atLeast(effective(before), 'alert')) {
-        await update($, pending, () => null)
-      }
-    }
+    await measure($, config, e)
 
     return next(e)
   })
@@ -381,6 +386,13 @@ export const register: Register = (on, options) => {
 
   on('classic.PostToolUse', async ($, e, next) => {
     const ran = await next(e)
+
+    await $.session
+      .usage()
+      .then(usage => measure($, config, usage))
+      .catch((error: unknown) => {
+        $.ui.log(`headroom: the reading after a tool could not be taken: ${String(error)}`, { to: 'debug' })
+      })
     const text = await read($, pending)
 
     if (text === null) {

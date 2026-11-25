@@ -122,6 +122,21 @@ test('the line reaches the model once', async ($, on) => {
   expect(contexts).toEqual([[WARM_50], undefined])
 })
 
+test('a finished tool refreshes the level mid-turn', async ($, on) => {
+  usage(on, 50, [])
+  const { toasts } = await harness($, on)
+
+  const after = await $.classic.PostToolUse({
+    tool_name: 'Bash',
+    tool_input: {},
+    tool_response: {},
+    tool_use_id: 't1',
+  })
+
+  expect(toasts).toEqual([WARM_50])
+  expect(after.additionalContext).toEqual([WARM_50])
+})
+
 test('the line reaches the model mid-turn', async ($, on) => {
   const { contexts, measure } = await harness($, on)
 
