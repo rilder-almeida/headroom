@@ -71,33 +71,44 @@ export const paceOf = (
   }
 }
 
+/** The pace level one window reaches, or null. */
+export const windowHit = (limit: Limit, now: number, ladder: readonly Level[]): Hit | null => {
+  const pace = paceOf(limit, now)
+  const level = pace === null ? undefined : highest(pace.value, ladder)
+
+  return pace === null || level === undefined
+    ? null
+    : { ladder: 'pace', level, value: pace.value, window: pace.window }
+}
+
 /** The highest pace level any window reaches, ties going to the larger value. */
 export const paceHit = (
   limits: readonly Limit[],
   now: number,
   ladder: readonly Level[],
-): Hit | null => {
-  let worst: Hit | null = null
+): Hit | null =>
+  limits
+    .map(limit => windowHit(limit, now, ladder))
+    .reduce<Hit | null>(
+      (worst, hit) =>
+        hit !== null &&
+        (worst === null ||
+          hit.level.at > worst.level.at ||
+          (hit.level.at === worst.level.at && hit.value > worst.value))
+          ? hit
+          : worst,
+      null,
+    )
 
-  for (const limit of limits) {
-    const pace = paceOf(limit, now)
-    const level = pace === null ? undefined : highest(pace.value, ladder)
+/** The stage a hit stands at: 0 below the first level, then 1 per level. */
+export const stageOf = (hit: Hit | null, ladder: readonly Level[]): number =>
+  hit === null ? 0 : ladder.findIndex(level => level.name === hit.level.name) + 1
 
-    if (pace === null || level === undefined) {
-      continue
-    }
+/** Points from a value to the next level's threshold, or null past the last level. */
+export const left = (value: number, ladder: readonly Level[]): number | null => {
+  const next = ladder.find(level => level.at > value)
 
-    const isWorse =
-      worst === null ||
-      level.at > worst.level.at ||
-      (level.at === worst.level.at && pace.value > worst.value)
-
-    if (isWorse) {
-      worst = { ladder: 'pace', level, value: pace.value, window: pace.window }
-    }
-  }
-
-  return worst
+  return next === undefined ? null : next.at - value
 }
 
 const rank = (action: Action): number => SEVERITY.indexOf(action)
@@ -126,16 +137,19 @@ export const sameGate = (a: Active, b: Active): boolean =>
 export const atLeast = (action: Action, floor: Action): boolean =>
   rank(action) >= rank(floor)
 
-const value = (hit: Hit): string =>
+const signed = (value: number): string => `${value > 0 ? '+' : ''}${value}%`
+
+const label = (hit: Hit): string =>
   hit.ladder === 'context'
-    ? `${hit.value}%`
-    : `${hit.value > 0 ? '+' : ''}${hit.value}% (${hit.window})`
+    ? `context ${hit.level.name} ${hit.value}%`
+    : `${hit.window} pace ${hit.level.name} ${signed(hit.value)}`
 
-const label = (hit: Hit): string => `${hit.ladder} ${hit.level.name} ${value(hit)}`
+/** The sentence headroom shows and hands to the model for one level, with the run-out time on pace lines. */
+export const line = (hit: Hit, out?: string): string => {
+  const until = hit.ladder === 'pace' && out !== undefined ? `, out in ${out}` : ''
 
-/** The sentence headroom shows and hands to the model for one level. */
-export const line = (hit: Hit): string =>
-  `headroom: ${label(hit)}: ${ADVICE[hit.ladder][hit.level.name] ?? ''}`
+  return `headroom: ${label(hit)}${until}: ${ADVICE[hit.ladder][hit.level.name] ?? ''}`
+}
 
 /** The band text: every active level, context first. */
 export const band = (active: Active): string =>

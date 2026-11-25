@@ -5,11 +5,14 @@ import {
   band,
   contextHit,
   effective,
+  left,
   line,
   paceHit,
   paceOf,
   sameGate,
   sameLevels,
+  stageOf,
+  windowHit,
 } from './levels'
 
 const D = ladders({})
@@ -106,19 +109,67 @@ describe('sameGate', () => {
   }
 })
 
+const hot66 = { ladder: 'context', level: D.context[1]!, value: 66 } as const
+const warm7d = { ladder: 'pace', level: D.pace[0]!, value: 39, window: '7d' } as const
+
 describe('line', () => {
-  for (const [hit, expected] of [
-    [full, 'headroom: context full 77%: stop now and start a fresh session'],
-    [paceHot, 'headroom: pace hot +54% (5h): show the pace and ask before starting long work'],
+  for (const [name, hit, out, expected] of [
+    ['context', hot66, undefined, 'headroom: context hot 66%: finish the current piece only, then start a fresh session'],
+    ['context ignores out', hot66, '1h', 'headroom: context hot 66%: finish the current piece only, then start a fresh session'],
+    ['pace with out', warm7d, '2d 2h', 'headroom: 7d pace warm +39%, out in 2d 2h: spending faster than the window allows, ease off'],
+    ['pace without out', warm7d, undefined, 'headroom: 7d pace warm +39%: spending faster than the window allows, ease off'],
+    ['last level', full, undefined, 'headroom: context full 77%: stop now and start a fresh session'],
   ] as const) {
-    test(expected, () => {
-      expect(line(hit)).toBe(expected)
+    test(name, () => {
+      expect(line(hit, out)).toBe(expected)
+    })
+  }
+})
+
+describe('left', () => {
+  for (const [name, value, ladder, expected] of [
+    ['context warm', 52, 'context', 13],
+    ['context ok', 30, 'context', 15],
+    ['context full', 80, 'context', null],
+    ['pace below zero', -40, 'pace', 60],
+    ['pace warm', 39, 'pace', 11],
+    ['pace over', 120, 'pace', null],
+  ] as const) {
+    test(name, () => {
+      expect(left(value, D[ladder])).toBe(expected)
+    })
+  }
+})
+
+describe('stageOf', () => {
+  for (const [name, hit, expected] of [
+    ['ok', null, 0],
+    ['warm', warm, 1],
+    ['hot', hot, 2],
+    ['full', full, 3],
+  ] as const) {
+    test(name, () => {
+      expect(stageOf(hit, hit?.ladder === 'pace' ? D.pace : D.context)).toBe(expected)
+    })
+  }
+})
+
+describe('windowHit', () => {
+  for (const [name, limit, expected] of [
+    ['5h at pace +62', { kind: 'five_hour', percentUsed: 81, resetsAt: resetIn(2.5 * HOUR) }, { name: 'hot', value: 62, window: '5h' }],
+    ['7d evenly spent', { kind: 'seven_day', percentUsed: 50, resetsAt: resetIn(84 * HOUR) }, null],
+    ['under 10% elapsed', { kind: 'five_hour', percentUsed: 5, resetsAt: resetIn(4.6 * HOUR) }, null],
+  ] as const) {
+    test(name, () => {
+      const hit = windowHit(limit, NOW, D.pace)
+
+      expect(hit === null ? null : { name: hit.level.name, value: hit.value, window: hit.ladder === 'pace' ? hit.window : null }).toEqual(expected)
     })
   }
 })
 
 test('band lists each active level', () => {
   expect(band({ context: hot, pace: paceHot })).toBe(
-    'context hot 67% · pace hot +54% (5h)',
+    'context hot 67% · 5h pace hot +54%',
   )
 })

@@ -27,7 +27,7 @@ const grant = atom({ plugin: 'headroom', key: 'grant' } as const, 'pending' as G
 const loud = (active: Active): string =>
   [active.context, active.pace]
     .filter((hit): hit is Hit => hit !== null && atLeast(hit.level.action, 'alert'))
-    .map(line)
+    .map(hit => line(hit))
     .join('\n')
 
 const window = (usage: SessionUsage['rateLimits'][number], now: number): string => {
