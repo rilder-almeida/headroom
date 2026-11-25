@@ -402,16 +402,16 @@ test('a session no surface draws never asks', async ($, on) => {
   expect(ran).toEqual(['a'])
 })
 
-test('a dismissed ask asks again', async ($, on) => {
+test('a dismissed ask lets the call run and asks again', async ($, on) => {
   const { asked, ran, measure, call } = await gate($, on, ['dismiss', 'Continue'])
 
   await measure(80)
   const first = await call('a')
   await call('b')
 
-  expect(first.deny).toContain(LIMIT_80)
+  expect(first.deny).toBeUndefined()
   expect(asked).toHaveLength(2)
-  expect(ran).toEqual(['b'])
+  expect(ran).toEqual(['a', 'b'])
 })
 
 test('parallel calls share one ask', async ($, on) => {
@@ -578,16 +578,16 @@ test('an answer to an old level does not decide a new one', async ($, on) => {
   expect(ran).toEqual(['a'])
 })
 
-test('a typed answer asks again', async ($, on) => {
+test('a typed answer lets the call run and asks again', async ($, on) => {
   const { asked, ran, measure, call } = await gate($, on, ['maybe later', 'Continue'])
 
   await measure(80)
   const first = await call('a')
   await call('b')
 
-  expect(first.deny).toContain(LIMIT_80)
+  expect(first.deny).toBeUndefined()
   expect(asked).toHaveLength(2)
-  expect(ran).toEqual(['b'])
+  expect(ran).toEqual(['a', 'b'])
 })
 
 const STORED_LIMIT = {

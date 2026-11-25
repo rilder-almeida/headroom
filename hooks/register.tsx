@@ -345,12 +345,12 @@ export const register: Register = (on, options) => {
 
       asking = null
 
-      if (chosen !== null) {
-        state.grant = chosen
-        await update($, grant, () => chosen)
+      if (chosen === null) {
+        return next(e)
       }
 
-      return chosen === 'granted' ? next(e) : { deny: reason }
+      state.grant = chosen
+      await update($, grant, () => chosen)
     }
   }).catch(($, e, next) => {
     if (next.called) {
