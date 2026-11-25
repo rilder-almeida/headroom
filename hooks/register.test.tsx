@@ -367,7 +367,7 @@ test('the details button toggles the full view', async ($, on) => {
 
   await measure(10)
   const band = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await band.find({ key: 'details' }))?.props.label).toBe('⋯')
+  expect((await band.find({ key: 'details' }))?.props.label).toBe('[-]')
 
   await band.press({ key: 'details' })
 

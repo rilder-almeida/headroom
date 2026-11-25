@@ -620,7 +620,7 @@ export const register: Register = (on, options) => {
             <Box key="band-head" flexDirection="row">
               {row(spans, i)}
               <Box flexGrow={1} />
-              <Button key="details" plain label={isFull ? '[-]' : '⋯'} onPress={toggle} />
+              <Button key="details" plain label="[-]" onPress={toggle} />
             </Box>
           ) : (
             row(spans, i)

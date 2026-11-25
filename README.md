@@ -3,7 +3,7 @@
 A gauge for your Claude Code session. headroom shows how full the context window is and how fast you spend your rate limits, in one quiet line above the prompt. When a number gets high, it warns you, asks you, or stops tool calls, as you choose.
 
 ```
-●●○○  │  5h ▲12% ⧗ 1h44   7d ▲39% ⧗ 2d19h        ⋯
+●●○○  │  5h ▲12% ⧗ 1h44   7d ▲39% ⧗ 2d19h        [-]
 ```
 
 headroom reads both numbers from Claude Code itself. It starts no extra process and makes no model call.
@@ -38,7 +38,7 @@ The band appears above the prompt at the next session start. You do not need to 
 ## Read the band in ten seconds
 
 ```
-●●○○  │  5h ▲12% ⧗ 1h44   7d ▲39% ⧗ 2d19h        ⋯
+●●○○  │  5h ▲12% ⧗ 1h44   7d ▲39% ⧗ 2d19h        [-]
 ↑        ↑  ↑      ↑                             ↑
 1        2  3      4                             5
 ```
@@ -47,12 +47,12 @@ The band appears above the prompt at the next session start. You do not need to 
 2. The rate-limit window: `5h` for 5 hours, `7d` for 7 days.
 3. Pace: `▲` faster than an even spread until the reset, `▼` slower.
 4. Run-out time: how long until this window runs out at the current speed. A window with no `⧗` lasts until its reset.
-5. The button that opens the full view.
+5. The button `[-]` that opens and closes the full view.
 
 While a burst is on (a sudden spike in spend or in context fill, see [Bursts](#bursts)), the row ends with the burst symbol `󰈸`:
 
 ```
-●●○○  │  5h ▲12% ⧗ 1h44   7d ▲39% ⧗ 2d19h   󰈸   ⋯
+●●○○  │  5h ▲12% ⧗ 1h44   7d ▲39% ⧗ 2d19h   󰈸   [-]
 ```
 
 The color tells you the level at a glance:
@@ -64,7 +64,7 @@ The color tells you the level at a glance:
 | orange | `hot` | Finish what is in flight. |
 | red | `full` or `over` | Stop. |
 
-Select `⋯` to open the full view, and `[-]` to close it. headroom keeps your choice across sessions.
+Select `[-]` at the end of the row to open the full view, and again to close it. headroom keeps your choice across sessions.
 
 ```
 headroom                                                   [-]

@@ -20,7 +20,7 @@
   - `⧗` and a time: when the window runs out at the current speed. No `⧗` means that the window lasts until its reset.
   - Colors: gray `ok`, yellow `warm`, orange `hot`, red `full`/`over`.
   - `󰈸` at the end: a burst is on (see Bursts).
-- Select `⋯` at the end of the row for the full view, and `[-]` to close it. The full view opens with the title `headroom`, then rows `now`, `pace`, `level` (for example `warm <65%`: warm until 65%) and `out`, the burst symbol next to the number in burst, then a gray summary line after a blank line. The choice persists across sessions.
+- Select `[-]` at the end of the row to open the full view, and again to close it. The full view opens with the title `headroom`, then rows `now`, `pace`, `level` (for example `warm <65%`: warm until 65%) and `out`, the burst symbol next to the number in burst, then a gray summary line after a blank line. The choice persists across sessions.
 - `/headroom` prints the same reading as text, with the summary line at the end.
 - Summary line example: `Context is warm at 41%, up 12% in the last 5 tool calls. The 5h window is hot at +45% pace and runs out 1h05 before its reset, at 17:35. The last 20 minutes burned 60% per hour, enough to empty it by 16:50. The 7d window is warm at +38% pace and runs out 11h before its reset, on Thursday at 22:00, so 5h is the tighter limit now.` Times are local.
 - Without a Claude subscription there are no rate-limit windows, so only the context level shows.
