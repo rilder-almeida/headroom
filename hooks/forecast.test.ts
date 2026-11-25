@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { duration, isForecast, outIn, step } from './forecast'
+import { duration, isForecast, outIn, runOut, step } from './forecast'
 import type { Forecast } from './forecast'
 
 const MIN = 60_000
@@ -88,6 +88,19 @@ describe('isForecast', () => {
   ] as const) {
     test(name, () => {
       expect(isForecast(value)).toBe(expected)
+    })
+  }
+})
+
+describe('runOut', () => {
+  const limit = { kind: 'five_hour', percentUsed: 81, resetsAt: at(2.5 * HOUR) }
+
+  for (const [name, stored, expected] of [
+    ['seeds without a stored forecast', undefined, '35m'],
+    ['lasts to the reset at a slow stored rate', { at: NOW - MIN, used: 81, resetsAt: limit.resetsAt, rate: 1 / HOUR }, '·'],
+  ] as const) {
+    test(name, () => {
+      expect(runOut(stored, limit, NOW)).toBe(expected)
     })
   }
 })

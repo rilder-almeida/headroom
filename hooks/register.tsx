@@ -1,21 +1,26 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionUsage } from 'claude-code'
 
-import type { Active, Grant, Hit } from '../types'
+import type { Active, Forecasts, Grant, Hit, Reading } from '../types'
 import { ladders } from './config'
 import type { Ladders } from './config'
+import { isForecast, runOut, step } from './forecast'
 import {
   atLeast,
   band,
   contextHit,
   effective,
+  left,
   line,
   paceHit,
   paceOf,
   sameGate,
   sameLevels,
+  stageOf,
+  windowHit,
   windowOf,
 } from './levels'
+import type { Limit } from './levels'
 
 const NOTHING: Active = { context: null, pace: null }
 
@@ -23,14 +28,42 @@ const levels = atom({ plugin: 'headroom', key: 'levels' } as const, NOTHING, { s
 const pending = atom({ plugin: 'headroom', key: 'pending' } as const, null)
 const armedFor = atom({ plugin: 'headroom', key: 'armedFor' } as const, null as string | null)
 const grant = atom({ plugin: 'headroom', key: 'grant' } as const, 'pending' as Grant, { shape: 'grant-2' })
+const reading = atom({ plugin: 'headroom', key: 'reading' } as const, null as Reading | null)
+const forecast = atom({ plugin: 'headroom', key: 'forecast' } as const, {} as Forecasts)
 
-const loud = (active: Active): string =>
+const KIND = { '5h': 'five_hour', '7d': 'seven_day' } as const
+
+/** The run-out text for the window a pace hit came from. */
+const outOf = (hit: Hit, limits: readonly Limit[], stored: Forecasts, now: number): string | undefined => {
+  if (hit.ladder !== 'pace') {
+    return undefined
+  }
+
+  const kind = KIND[hit.window]
+  const limit = limits.find(one => one.kind === kind)
+  const out = limit === undefined ? '·' : runOut(stored[kind], limit, now)
+
+  return out === '·' ? undefined : out
+}
+
+type Context = { limits: readonly Limit[]; stored: Forecasts; now: number }
+
+const loud = (active: Active, at: Context, only?: (hit: Hit) => boolean): string =>
   [active.context, active.pace]
     .filter((hit): hit is Hit => hit !== null && atLeast(hit.level.action, 'alert'))
-    .map(hit => line(hit))
+    .filter(hit => only?.(hit) ?? true)
+    .map(hit => line(hit, outOf(hit, at.limits, at.stored, at.now)))
     .join('\n')
 
-const window = (usage: SessionUsage['rateLimits'][number], now: number): string => {
+const pct = (value: number): string => `${value}%`.padEnd(5)
+
+const standing = (name: string, value: number, ladder: Ladders['context']): string => {
+  const room = left(value, ladder)
+
+  return room === null ? name : `${name} · ${room}% left`
+}
+
+const window = (usage: Limit, now: number, config: Ladders, stored: Forecasts): string => {
   const name = windowOf(usage.kind)?.label ?? usage.kind
   const reset = usage.resetsAt === undefined ? NaN : Date.parse(usage.resetsAt)
 
@@ -39,25 +72,52 @@ const window = (usage: SessionUsage['rateLimits'][number], now: number): string 
   }
 
   const pace = paceOf(usage, now)
-  const speed = pace === null ? 'pace n/a' : `pace ${pace.value > 0 ? '+' : ''}${pace.value}%`
+  const head = `${name.padEnd(9)}${pct(usage.percentUsed)}`
+  const out = `out ${runOut(stored[usage.kind], usage, now)}`
 
-  return `${name} ${usage.percentUsed}% used, ${speed}`
+  if (pace === null) {
+    return `${head}${'pace n/a'.padEnd(11)}${''.padEnd(17)}${out}`
+  }
+
+  const level = windowHit(usage, now, config.pace)?.level.name ?? 'ok'
+  const speed = `pace ${pace.value > 0 ? '+' : ''}${pace.value}%`
+
+  return `${head}${speed.padEnd(11)}${standing(level, pace.value, config.pace).padEnd(17)}${out}`
 }
 
-const report = (usage: SessionUsage, now: number, config: Ladders): string => {
+const report = (usage: SessionUsage, now: number, config: Ladders, stored: Forecasts): string => {
   const percent = usage.context.percent
-  const context = contextHit(percent, config.context)
   const lines = [
     percent === undefined
-      ? 'context: no reading yet'
-      : `context ${percent}% (${context?.level.name ?? 'ok'})`,
+      ? 'context n/a'
+      : `${'context'.padEnd(9)}${pct(percent)}${standing(contextHit(percent, config.context)?.level.name ?? 'ok', percent, config.context)}`,
   ]
 
   if (usage.rateLimits.length === 0) {
     lines.push('no rate-limit windows (no subscription)')
   }
 
-  return [...lines, ...usage.rateLimits.map(limit => window(limit, now))].join('\n')
+  return [...lines, ...usage.rateLimits.map(limit => window(limit, now, config, stored))].join('\n')
+}
+
+const STORE_KEY = 'forecast'
+
+const loadForecasts = async ($: EngineInterface): Promise<Forecasts> => {
+  const value = await $.store.get(STORE_KEY)
+
+  if (value === undefined) {
+    return {}
+  }
+
+  const entries = typeof value === 'object' && value !== null ? Object.entries(value) : []
+
+  if (entries.length === 0 || !entries.every(([, one]) => isForecast(one))) {
+    $.ui.log(`headroom: its stored forecast is unreadable: ${JSON.stringify(value)}`, { to: 'debug' })
+
+    return {}
+  }
+
+  return Object.fromEntries(entries)
 }
 
 let timer: { cancel: () => void } | null = null
@@ -67,9 +127,9 @@ const wake = async ($: EngineInterface, config: Ladders) => {
   await update($, armedFor, () => null)
   $.ui.toast('headroom: the 5h window reset')
 
-  const reading = report(await $.session.usage(), await $.clock.now(), config)
+  const fresh = report(await $.session.usage(), await $.clock.now(), config, await read($, forecast))
 
-  await $.prompt.submit({ text: `headroom: the 5h window reset. Fresh reading:\n${reading}` })
+  await $.prompt.submit({ text: `headroom: the 5h window reset. Fresh reading:\n${fresh}` })
 }
 
 const arm = async ($: EngineInterface, config: Ladders, resetsAt: string) => {
@@ -92,9 +152,12 @@ const current = async ($: EngineInterface) => {
   return live
 }
 
+const actionOf = (state: NonNullable<typeof live>) =>
+  state.grant === 'blocked' ? 'block' : effective(state.active)
+
 const isGating = ($: EngineInterface, state: typeof live): boolean => {
   try {
-    return state !== null && atLeast(effective(state.active), 'ask')
+    return state !== null && atLeast(actionOf(state), 'ask')
   } catch (error) {
     $.ui.log(`headroom: its stored levels are unreadable: ${String(error)}`, { to: 'debug' })
 
@@ -103,13 +166,21 @@ const isGating = ($: EngineInterface, state: typeof live): boolean => {
 }
 
 const answerOf = (answer: string): Grant | null =>
-  answer === 'Continue' ? 'granted' : answer === 'Stop' ? 'blocked' : null
+  answer === 'Continue' ? 'granted' : answer === 'Block' ? 'blocked' : null
 
 export const register: Register = (on, options) => {
   const config = ladders(options)
   let asking: { epoch: number; answer: Promise<Grant | null> } | null = null
 
   on('session.start', async ($, e, next) => {
+    const stored = await loadForecasts($).catch((error: unknown) => {
+      $.ui.log(`headroom: its stored forecast could not be read: ${String(error)}`, { to: 'debug' })
+
+      return {}
+    })
+
+    await update($, forecast, () => stored)
+
     const armed = await read($, armedFor)
 
     if (armed !== null) {
@@ -132,7 +203,7 @@ export const register: Register = (on, options) => {
 
     await $.command.register({
       name: 'headroom',
-      description: 'Show context fill, rate-limit windows and pace',
+      description: 'Show context, rate-limit windows, pace and run-out time',
     })
 
     return next(e)
@@ -169,6 +240,23 @@ export const register: Register = (on, options) => {
       await arm($, config, hot.resetsAt)
     }
 
+    const kept = await read($, forecast)
+    const stepped: Forecasts = Object.fromEntries(
+      e.rateLimits.flatMap(limit => {
+        const moved = step(kept[limit.kind], limit, now)
+
+        return moved === undefined ? [] : [[limit.kind, moved]]
+      }),
+    )
+    const stored = { ...kept, ...stepped }
+    const at: Context = { limits: e.rateLimits, stored, now }
+
+    await update($, forecast, () => stored)
+    await update($, reading, () => ({ context: e.context.percent, rateLimits: [...e.rateLimits] }))
+    await $.store.set(STORE_KEY, stored).catch((error: unknown) => {
+      $.ui.log(`headroom: the forecast could not be stored: ${String(error)}`, { to: 'debug' })
+    })
+
     state.active = active
     await update($, levels, () => active)
 
@@ -179,12 +267,18 @@ export const register: Register = (on, options) => {
     }
 
     if (!sameLevels(before, active)) {
+      const rose = loud(active, at, hit =>
+        stageOf(hit, config[hit.ladder]) > stageOf(before[hit.ladder], config[hit.ladder]),
+      )
+
+      if (rose !== '') {
+        $.ui.toast(rose)
+      }
+
       if (atLeast(effective(active), 'alert')) {
-        const text = loud(active)
-        $.ui.toast(text)
+        const text = loud(active, at)
         await update($, pending, () => text)
       } else if (atLeast(effective(before), 'alert')) {
-        $.ui.toast('back within headroom')
         await update($, pending, () => null)
       }
     }
@@ -198,10 +292,12 @@ export const register: Register = (on, options) => {
     }
 
     const state = await current($)
+    const last = await read($, reading)
+    const at: Context = { limits: last?.rateLimits ?? [], stored: await read($, forecast), now: await $.clock.now() }
 
     for (;;) {
-      const action = effective(state.active)
-      const reason = loud(state.active)
+      const action = actionOf(state)
+      const reason = loud(state.active, at)
 
       if (action === 'block') {
         return { deny: reason }
@@ -213,15 +309,15 @@ export const register: Register = (on, options) => {
 
       const asked = state.epoch
 
-      if (state.grant !== 'pending') {
-        return state.grant === 'granted' ? next(e) : { deny: reason }
+      if (state.grant === 'granted') {
+        return next(e)
       }
 
       if (asking?.epoch !== asked) {
         asking = {
           epoch: asked,
           answer: $.ui
-            .ask(`${reason}\nContinue anyway?`, ['Continue', 'Stop'])
+            .ask(`${reason}\nBlock tools until this level changes?`, ['Continue', 'Block'])
             .then(answerOf)
             .catch((error: unknown) => {
               $.ui.log(`headroom: the ask got no answer: ${String(error)}`, { to: 'debug' })
@@ -253,7 +349,7 @@ export const register: Register = (on, options) => {
 
     if (isGating($, live)) {
       return {
-        deny: 'headroom: its guard failed, so the call was refused. Try again, or run /plugin disable headroom.',
+        deny: 'headroom: its guard failed while block was on, so tools stay blocked. Try again, or run /plugin disable headroom.',
       }
     }
 
@@ -306,7 +402,7 @@ export const register: Register = (on, options) => {
   })
 
   on('command.run', { command: 'headroom' }, async $ => ({
-    text: report(await $.session.usage(), await $.clock.now(), config),
+    text: report(await $.session.usage(), await $.clock.now(), config, await read($, forecast)),
     isTextDisplayOnly: true,
   }))
 }

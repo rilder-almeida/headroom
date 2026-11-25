@@ -1,8 +1,8 @@
 import { paceOf, windowOf } from './levels'
 import type { Limit } from './levels'
+import type { Forecast } from '../types'
 
-/** The smoothed spend of one window: the last reading and its rate, in percent per millisecond. */
-export type Forecast = { at: number; used: number; resetsAt: string; rate: number }
+export type { Forecast }
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -104,3 +104,10 @@ export const isForecast = (value: unknown): value is Forecast =>
   isNumber(value.used) &&
   typeof value.resetsAt === 'string' &&
   isNumber(value.rate)
+
+/** The run-out text of a window from its stored forecast: a duration, or `·` when it lasts to its reset. */
+export const runOut = (stored: Forecast | undefined, limit: Limit, now: number): string => {
+  const out = outIn(step(stored, limit, now), limit, now)
+
+  return out === null ? '·' : duration(out)
+}

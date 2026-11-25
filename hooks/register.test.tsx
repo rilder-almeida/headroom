@@ -12,6 +12,7 @@ const usage = (on: On, percent: number | undefined, rateLimits: SessionRateLimit
   }))
 
 const start = async (on: On, $: Engine) => {
+  mock.store(on)
   on('command.register', () => ({ value: { command: 'headroom' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
@@ -35,9 +36,11 @@ test('the command reports context, windows and pace', async ($, on) => {
 
   const { text } = await run($)
 
-  expect(text).toContain('context 67% (hot)')
-  expect(text).toContain('5h 30% used, pace -40%')
-  expect(text).toContain('7d 40% used, pace -20%')
+  expect(text?.split('\n')).toEqual([
+    'context  67%  hot · 8% left',
+    '5h       30%  pace -40%  ok · 60% left    out ·',
+    '7d       40%  pace -20%  ok · 40% left    out ·',
+  ])
 })
 
 test('the command says why pace is missing', async ($, on) => {
@@ -47,7 +50,7 @@ test('the command says why pace is missing', async ($, on) => {
 
   const { text } = await run($)
 
-  expect(text).toContain('context 10% (ok)')
+  expect(text).toContain('context  10%  ok · 35% left')
   expect(text).toContain('no rate-limit windows (no subscription)')
 })
 
@@ -135,7 +138,7 @@ test('the line reaches the model mid-turn', async ($, on) => {
   expect(contexts).toEqual([undefined])
 })
 
-test('a drop below alert toasts back within headroom', async ($, on) => {
+test('a fall back to ok toasts nothing', async ($, on) => {
   const { toasts, contexts, measure } = await harness($, on)
 
   await measure(50)
@@ -143,8 +146,61 @@ test('a drop below alert toasts back within headroom', async ($, on) => {
   await measure(10)
   await submit($, 'again')
 
-  expect(toasts).toEqual([WARM_50, 'back within headroom'])
+  expect(toasts).toEqual([WARM_50])
   expect(contexts).toEqual([[WARM_50], undefined])
+})
+
+const HOT_67 = 'headroom: context hot 67%: finish the current piece only, then start a fresh session'
+
+test('only a rise toasts, every change into alert reaches the model', async ($, on) => {
+  const { toasts, contexts, measure } = await harness($, on)
+
+  await measure(50)
+  await submit($, 'a')
+  await measure(67)
+  await submit($, 'b')
+  await measure(50)
+  await submit($, 'c')
+
+  expect(toasts).toEqual([WARM_50, HOT_67])
+  expect(contexts).toEqual([[WARM_50], [HOT_67], [WARM_50]])
+})
+
+test('a rise to a level set to none toasts nothing', { options: { context_warm_action: 'none' } }, async ($, on) => {
+  const { toasts, measure } = await harness($, on)
+
+  await measure(50)
+
+  expect(toasts).toEqual([])
+})
+
+test('a pace line carries its run-out time', async ($, on) => {
+  const { toasts, measure } = await harness($, on)
+
+  await measure(10, [{ kind: 'five_hour', percentUsed: 81, resetsAt: resetIn(2.5 * HOUR) }])
+
+  expect(toasts).toEqual(['headroom: 5h pace hot +62%, out in 35m: show the pace and ask before starting long work'])
+})
+
+test('a reading steps the forecast and stores it', async ($, on) => {
+  const stored: unknown[] = []
+  mock.clock(on, { now: NOW })
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', (_, e) => {
+    stored.push(e.value)
+
+    return { value: undefined }
+  })
+  on('ui.toast', () => ({ value: undefined }))
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('command.register', () => ({ value: { command: 'headroom' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const limit = { kind: 'five_hour', percentUsed: 81, resetsAt: resetIn(2.5 * HOUR) }
+  await $.session.measure({ context: { window: 1_000_000, percent: 10 }, rateLimits: [limit], changed: ['rateLimits'] })
+
+  expect(stored.at(-1)).toMatchObject({ five_hour: { used: 81, resetsAt: limit.resetsAt } })
 })
 
 test('a jump to full is one transition', async ($, on) => {
@@ -189,6 +245,7 @@ const gate = async (
   surfaces: RenderSurface[] | 'broken' = ['terminal'],
 ) => {
   const asked: string[] = []
+  const labels: string[] = []
   const ran: string[] = []
 
   mock.clock(on, { now: NOW })
@@ -203,6 +260,7 @@ const gate = async (
 
     const question = e.questions[0]?.question ?? ''
     asked.push(question)
+    labels.push(...(e.questions[0]?.options.map(option => option.label) ?? []))
     const answer = await (answers.shift() ?? 'Continue')
 
     return answer === 'dismiss'
@@ -216,6 +274,7 @@ const gate = async (
 
     return { value: surfaces }
   })
+  mock.store(on)
   on('command.register', () => ({ value: { command: 'headroom' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   await $.session.start({ cwd: '/', surface: surfaces === 'broken' ? 'terminal' : surfaces[0] ?? null, isInteractive: false })
@@ -225,11 +284,11 @@ const gate = async (
   const call = (id: string, agentId?: string) =>
     $.tool.call({ tool: 'Bash', command: 'ls', tool_use_id: id, agentId })
 
-  return { asked, ran, measure, call }
+  return { asked, labels, ran, measure, call }
 }
 
 test('ask confirms once per level', async ($, on) => {
-  const { asked, ran, measure, call } = await gate($, on, ['Continue'])
+  const { asked, labels, ran, measure, call } = await gate($, on, ['Continue'])
 
   await measure(80)
   await call('a')
@@ -237,11 +296,13 @@ test('ask confirms once per level', async ($, on) => {
 
   expect(asked).toHaveLength(1)
   expect(asked[0]).toContain(LIMIT_80)
+  expect(asked[0]).toContain('Block tools until this level changes?')
+  expect(labels).toEqual(['Continue', 'Block'])
   expect(ran).toEqual(['a', 'b'])
 })
 
-test('stop denies until the next transition', async ($, on) => {
-  const { ran, measure, call } = await gate($, on, ['Stop'])
+test('the Block answer blocks until the next transition', async ($, on) => {
+  const { ran, measure, call } = await gate($, on, ['Block'])
 
   await measure(80)
   const first = await call('a')
@@ -356,6 +417,7 @@ const timer = async ($: Engine, on: On, setup: TimerSetup = {}) => {
   })
   on('session.measure', (_, e) => ({ changed: e.changed }))
   usage(on, 20, windows)
+  mock.store(on)
   on('command.register', () => ({ value: { command: 'headroom' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
 
@@ -391,7 +453,7 @@ test('the timer arms past wake_at and fires at reset', async ($, on) => {
 
   expect(prompts).toHaveLength(1)
   expect(prompts[0]).toContain('5h window reset')
-  expect(prompts[0]).toContain('context 20% (ok)')
+  expect(prompts[0]).toContain('context  20%  ok · 25% left')
   expect(toasts).toContain('headroom: the 5h window reset')
 })
 
@@ -551,7 +613,7 @@ test('a failing guard while an ask level is active refuses the call', async ($, 
   await measure(80)
   const got = await call('a')
 
-  expect(got.deny).toContain('/plugin disable headroom')
+  expect(got.deny).toBe('headroom: its guard failed while block was on, so tools stay blocked. Try again, or run /plugin disable headroom.')
   expect(ran).toEqual([])
 })
 
@@ -563,7 +625,7 @@ test('the command marks a window that reset since the last reading', async ($, o
   const { text } = await run($)
 
   expect(text).toContain('5h reset, no reading since')
-  expect(text).not.toContain('80% used')
+  expect(text).not.toContain('80%')
 })
 
 test('the command labels a young window by its length', async ($, on) => {
@@ -573,7 +635,8 @@ test('the command labels a young window by its length', async ($, on) => {
 
   const { text } = await run($)
 
-  expect(text).toContain('5h 3% used, pace n/a')
+  expect(text).toContain('5h       3%   pace n/a')
+  expect(text).toContain('out ·')
 })
 
 test('a reset already past never arms', async ($, on) => {
@@ -640,4 +703,38 @@ test('another end keeps the timer', async ($, on) => {
   await clock.advance(HOUR + 60_000)
 
   expect(prompts).toHaveLength(1)
+})
+
+test('a stored forecast loads at session start', async ($, on) => {
+  const limit = { kind: 'five_hour', percentUsed: 81, resetsAt: resetIn(2.5 * HOUR) }
+  mock.clock(on, { now: NOW })
+  usage(on, 10, [limit])
+  mock.store(on, { forecast: { five_hour: { at: NOW - 60_000, used: 81, resetsAt: limit.resetsAt, rate: 1 / HOUR } } })
+  on('command.register', () => ({ value: { command: 'headroom' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const { text } = await run($)
+
+  expect(text).toContain('out ·')
+})
+
+test('a broken stored forecast is ignored and logged', async ($, on) => {
+  const logs: string[] = []
+  mock.clock(on, { now: NOW })
+  usage(on, 10, [{ kind: 'five_hour', percentUsed: 81, resetsAt: resetIn(2.5 * HOUR) }])
+  mock.store(on, { forecast: 'x' })
+  on('ui.log', (_, e) => {
+    logs.push(e.text)
+
+    return { value: undefined }
+  })
+  on('command.register', () => ({ value: { command: 'headroom' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+
+  const { text } = await run($)
+
+  expect(text).toContain('out 35m')
+  expect(logs.some(line => line.includes('stored forecast is unreadable'))).toBe(true)
 })
